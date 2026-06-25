@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Essensplaner</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
+<style>
+  :root {
+    --bg: #f2f2f7;
+    --surface: #ffffff;
+    --border: rgba(0,0,0,0.08);
+    --text: #1c1c1e;
+    --text-muted: #8e8e93;
+    --accent: #2AABEE;
+    --accent-bg: #e8f4fd;
+    --radius: 14px;
+    --radius-sm: 10px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1c1c1e;
+      --surface: #2c2c2e;
+      --border: rgba(255,255,255,0.1);
+      --text: #f2f2f7;
+      --text-muted: #8e8e93;
+      --accent-bg: #1a3a4a;
+    }
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    max-width: 430px;
+    margin: 0 auto;
+    min-height: 100vh;
+    overscroll-behavior: none;
+  }
+
+  /* ─── Tab Bar ─── */
+  .tabs {
+    display: flex;
+    background: var(--surface);
+    border-bottom: 0.5px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .tab {
+    flex: 1;
+    padding: 10px 4px 8px;
+    text-align: center;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.18s;
+    user-select: none;
+    letter-spacing: 0.2px;
+  }
+
+  .tab .tab-icon { font-size: 20px; display: block; margin-bottom: 2px; }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* ─── Panels ─── */
+  .panel { display: none; padding: 12px; padding-bottom: 80px; }
+  .panel.active { display: block; }
+
+  /* ─── AI Banner ─── */
+  .ai-banner {
+    background: var(--accent-bg);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border: 0.5px solid rgba(42,171,238,0.2);
+  }
+
+  .ai-banner-text { flex: 1; }
+  .ai-banner-text strong { font-size: 14px; display: block; color: var(--text); }
+  .ai-banner-text span { font-size: 12px; color: var(--text-muted); }
+
+  .btn-ai {
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: var(--radius-sm);
+    padding: 9px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: opacity 0.15s;
+  }
+
+  .btn-ai:active { opacity: 0.8; }
+
+  /* ─── Week separator ─── */
+  .week-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--text-muted);
+    padding: 12px 2px 6px;
+  }
+
+  /* ─── Day Card ─── */
+  .day-card {
+    background: var(--surface);
+    border-radius: var(--radius);
+    border: 0.5px solid var(--border);
+    margin-bottom: 8px;
+    overflow: hidden;
+    transition: box-shadow 0.2s;
+  }
+
+  .day-card.sortable-chosen { box-shadow: 0 8px 28px rgba(0,0,0,0.18); }
+  .day-card.sortable-ghost { opacity: 0.35; }
+
+  .day-header {
+    display: flex;
+    align-items: center;
+    padding: 8px 14px;
+    gap: 8px;
+    border-bottom: 0.5px solid var(--border);
+  }
+
+  .day-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    min-width: 52px;
+  }
+
+  .day-badge {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 9px;
+    border-radius: 20px;
+    letter-spacing: 0.2px;
+  }
+
+  .badge-prep     { background: #e3f2fd; color: #1565c0; }
+  .badge-reste    { background: #ede7f6; color: #4527a0; }
+  .badge-sunday   { background: #fce4ec; color: #880e4f; }
+  .badge-weekend  { background: #e8f5e9; color: #2e7d32; }
+
+  .meal-row {
+    display: flex;
+    align-items: center;
+    padding: 11px 14px;
+    gap: 10px;
+  }
+
+  .drag-handle {
+    color: var(--text-muted);
+    opacity: 0.35;
+    font-size: 18px;
+    cursor: grab;
+    flex-shrink: 0;
+    touch-action: none;
+  }
+
+  .meal-info { flex: 1; min-width: 0; }
+  .meal-name { font-size: 15px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .meal-sub  { font-size: 12px; color: var(--text-muted); margin-top: 1px; }
+
+  .cat-pill {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 3px 9px;
+    border-radius: 20px;
+    flex-shrink: 0;
+  }
+
+  .cat-reis       { background: #fff3e0; color: #bf360c; }
+  .cat-nudeln     { background: #fce4ec; color: #880e4f; }
+  .cat-kartoffeln { background: #e8f5e9; color: #1b5e20; }
+  .cat-fleisch    { background: #fbe9e7; color: #bf360c; }
+
+  /* ─── Person Stepper ─── */
+  .stepper {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
+  .stepper-btn {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    border: 0.5px solid var(--border);
+    background: var(--bg);
+    color: var(--text);
+    font-size: 17px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    line-height: 1;
+    flex-shrink: 0;
+    transition: background 0.15s;
+  }
+
+  .stepper-btn:active { background: var(--border); }
+  .stepper-val { font-size: 14px; font-weight: 600; min-width: 14px; text-align: center; }
+
+  /* ─── Shopping List ─── */
+  .cat-header {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--text-muted);
+    padding: 14px 2px 6px;
+  }
+
+  .shop-item {
+    display: flex;
+    align-items: center;
+    background: var(--surface);
+    border-radius: var(--radius-sm);
+    border: 0.5px solid var(--border);
+    padding: 11px 14px;
+    margin-bottom: 6px;
+    gap: 12px;
+    transition: opacity 0.2s;
+  }
+
+  .shop-item.done { opacity: 0.38; }
+  .shop-item.done .item-name { text-decoration: line-through; }
+
+  .check-circle {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    border: 1.5px solid var(--border);
+    flex-shrink: 0;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    transition: all 0.15s;
+    color: white;
+  }
+
+  .check-circle.on { background: #4CAF50; border-color: #4CAF50; }
+
+  .item-name   { flex: 1; font-size: 15px; }
+  .item-amount { font-size: 13px; color: var(--text-muted); font-weight: 500; white-space: nowrap; }
+
+  /* ─── Offer Badge ─── */
+  .offer-badge {
+    font-size: 10px;
+    background: #e8f5e9;
+    color: #2e7d32;
+    border-radius: 6px;
+    padding: 2px 7px;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+
+  /* ─── Pantry ─── */
+  .pantry-item {
+    display: flex;
+    align-items: center;
+    background: var(--surface);
+    border-radius: var(--radius-sm);
+    border: 0.5px solid var(--border);
+    padding: 12px 14px;
+    margin-bottom: 6px;
+    gap: 12px;
+  }
+
+  .pantry-emoji { font-size: 22px; flex-shrink: 0; }
+  .pantry-info  { flex: 1; }
+  .pantry-name  { font-size: 15px; font-weight: 500; }
+  .pantry-sub   { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+  .status-badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 20px;
+    flex-shrink: 0;
+  }
+
+  .status-ok     { background: #e8f5e9; color: #2e7d32; }
+  .status-soon   { background: #fff3e0; color: #e65100; }
+  .status-needed { background: #fce4ec; color: #c62828; }
+
+  /* ─── Loading Spinner ─── */
+  .spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(255,255,255,0.4);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    vertical-align: middle;
+    margin-right: 4px;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ─── Toast ─── */
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(60px);
+    background: #1c1c1e;
+    color: white;
+    padding: 10px 20px;
+    border-radius: 24px;
+    font-size: 13px;
+    font-weight: 500;
+    z-index: 999;
+    transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1);
+    white-space: nowrap;
+  }
+
+  .toast.show { transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+
+<div class="tabs">
+  <div class="tab active" data-panel="plan" onclick="switchTab(this)">
+    <span class="tab-icon">📅</span>Plan
+  </div>
+  <div class="tab" data-panel="shopping" onclick="switchTab(this)">
+    <span class="tab-icon">🛒</span>Einkauf
+  </div>
+  <div class="tab" data-panel="pantry" onclick="switchTab(this)">
+    <span class="tab-icon">📦</span>Vorräte
+  </div>
+</div>
+
+<!-- ═══════════════ PLAN ═══════════════ -->
+<div id="panel-plan" class="panel active">
+  <div class="ai-banner">
+    <div class="ai-banner-text">
+      <strong>✨ KI-Planung</strong>
+      <span>2 Wochen automatisch generieren</span>
+    </div>
+    <button class="btn-ai" id="btn-generate" onclick="generatePlan()">Erstellen</button>
+  </div>
+  <div id="meal-plan-list"></div>
+</div>
+
+<!-- ═══════════════ SHOPPING ═══════════════ -->
+<div id="panel-shopping" class="panel">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+    <span style="font-size:18px;font-weight:700">Einkaufsliste</span>
+    <button class="btn-ai" style="font-size:12px;padding:7px 12px" onclick="generateShopping()">⟳ Neu erstellen</button>
+  </div>
+  <div id="shopping-list"></div>
+</div>
+
+<!-- ═══════════════ PANTRY ═══════════════ -->
+<div id="panel-pantry" class="panel">
+  <span style="font-size:18px;font-weight:700;display:block;margin-bottom:12px">Grundvorräte</span>
+  <div id="pantry-list"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ── Telegram WebApp init ──────────────────────────────────────────────────
+const tg = window.Telegram?.WebApp;
+if (tg) {
+  tg.ready();
+  tg.expand();
+  // Apply Telegram's theme colors if available
+  if (tg.themeParams?.bg_color) {
+    document.documentElement.style.setProperty('--bg', tg.themeParams.bg_color);
+    document.documentElement.style.setProperty('--surface', tg.themeParams.secondary_bg_color || '#fff');
+    document.documentElement.style.setProperty('--text', tg.themeParams.text_color || '#1c1c1e');
+    document.documentElement.style.setProperty('--text-muted', tg.themeParams.hint_color || '#8e8e93');
+    document.documentElement.style.setProperty('--accent', tg.themeParams.button_color || '#2AABEE');
+  }
+}
+
+// ── Data ─────────────────────────────────────────────────────────────────
+const RECIPES = [
+  { id:1,  name:"Pasta Bolognese",          cat:"nudeln",      aufwand:"mittel",    tags:["meal-prep","fleisch"] },
+  { id:2,  name:"Hähnchen mit Reis",         cat:"reis",        aufwand:"einfach",   tags:["meal-prep"] },
+  { id:3,  name:"Kartoffelgratin",           cat:"kartoffeln",  aufwand:"aufwendig", tags:["weekend"] },
+  { id:4,  name:"Risotto ai funghi",         cat:"reis",        aufwand:"mittel",    tags:["weekend"] },
+  { id:5,  name:"Spaghetti Aglio e Olio",   cat:"nudeln",      aufwand:"einfach",   tags:[] },
+  { id:6,  name:"Bratkartoffeln mit Ei",    cat:"kartoffeln",  aufwand:"einfach",   tags:[] },
+  { id:7,  name:"Schweinebraten",           cat:"fleisch",     aufwand:"aufwendig", tags:["sunday"] },
+  { id:8,  name:"Chicken Curry",             cat:"reis",        aufwand:"mittel",    tags:["meal-prep"] },
+  { id:9,  name:"Gnocchi Tomatensauce",     cat:"kartoffeln",  aufwand:"einfach",   tags:["meal-prep"] },
+  { id:10, name:"Rindergulasch",            cat:"fleisch",     aufwand:"aufwendig", tags:["sunday"] },
+  { id:11, name:"Nudeln mit Sahnesauce",    cat:"nudeln",      aufwand:"einfach",   tags:["meal-prep"] },
+  { id:12, name:"Fried Rice",               cat:"reis",        aufwand:"einfach",   tags:["meal-prep"] },
+];
+
+const PANTRY_DATA = [
+  { name:"Reis",          emoji:"🌾", interval:"30 Tage",  daysLeft:20 },
+  { name:"Nudeln",        emoji:"🍝", interval:"14 Tage",  daysLeft:5  },
+  { name:"Olivenöl",      emoji:"🫙", interval:"60 Tage",  daysLeft:45 },
+  { name:"Zwiebeln",      emoji:"🧅", interval:"7 Tage",   daysLeft:2  },
+  { name:"Knoblauch",     emoji:"🧄", interval:"14 Tage",  daysLeft:8  },
+  { name:"Salz & Pfeffer",emoji:"🧂", interval:"90 Tage",  daysLeft:60 },
+  { name:"Dosentomaten",  emoji:"🥫", interval:"21 Tage",  daysLeft:3  },
+  { name:"Eier",          emoji:"🥚", interval:"7 Tage",   daysLeft:4  },
+];
+
+// ── State ─────────────────────────────────────────────────────────────────
+let mealPlan   = [];
+let shopping   = [];
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+function pickRandom(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+function badge(cls, label) {
+  return `<span class="day-badge ${cls}">${label}</span>`;
+}
+
+function catPill(cat) {
+  const labels = { reis:"Reis", nudeln:"Nudeln", kartoffeln:"Kartoffeln", fleisch:"Fleisch" };
+  return `<span class="cat-pill cat-${cat}">${labels[cat]||cat}</span>`;
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+// ── Plan Generation ────────────────────────────────────────────────────────
+function generatePlan() {
+  const btn = document.getElementById('btn-generate');
+  btn.innerHTML = '<span class="spinner"></span>Plane…';
+  btn.disabled = true;
+
+  setTimeout(() => {
+    buildPlan();
+    buildShopping();
+    renderPlan();
+    renderShopping();
+    btn.textContent = '✓ Fertig';
+    btn.disabled = false;
+    setTimeout(() => btn.textContent = 'Erstellen', 2000);
+    showToast('Plan für 2 Wochen erstellt ✓');
+  }, 900); // Simulate API delay
+}
+
+function buildPlan() {
+  mealPlan = [];
+  const today   = new Date();
+  const dow     = today.getDay(); // 0=So
+  const diff    = (7 - dow) % 7 || 7;
+  const nextSun = new Date(today);
+  nextSun.setDate(today.getDate() + diff);
+  nextSun.setHours(0,0,0,0);
+
+  const cats    = ["nudeln", "kartoffeln", "reis"];
+  let catIdx    = 0;
+
+  for (let i = 0; i < 14; i++) {
+    const date  = new Date(nextSun);
+    date.setDate(nextSun.getDate() + i);
+    const d     = date.getDay(); // 0=So
+    let recipe  = null;
+    let isMealPrep = false;
+    let isReste    = false;
+
+    if (d === 0) {
+      // Sonntag → Fleischgericht
+      recipe = pickRandom(RECIPES.filter(r => r.tags.includes("sunday")));
+    } else if (d === 2 || d === 4) {
+      // Di / Do → Reste vom Vortag
+      const prev = mealPlan[mealPlan.length - 2];
+      recipe  = prev?.recipe;
+      isReste = true;
+    } else if (d === 1 || d === 3) {
+      // Mo / Mi → Meal Prep (abwechselnd Reis/Nudeln/Kartoffeln)
+      const cat  = cats[catIdx++ % 3];
+      const pool = RECIPES.filter(r => r.cat === cat && r.tags.includes("meal-prep"));
+      recipe  = pickRandom(pool.length ? pool : RECIPES.filter(r => r.cat === cat));
+      isMealPrep = true;
+    } else {
+      // Fr / Sa → entspannt, aufwendiger
+      const cat  = cats[catIdx++ % 3];
+      const pool = RECIPES.filter(r => r.cat === cat);
+      recipe  = pickRandom(pool.length ? pool : RECIPES);
+    }
+
+    mealPlan.push({ date, dow:d, recipe: recipe || RECIPES[i % RECIPES.length], persons:2, isMealPrep, isReste });
+  }
+}
+
+// ── Render Plan ────────────────────────────────────────────────────────────
+function renderPlan() {
+  const container = document.getElementById('meal-plan-list');
+  container.innerHTML = '';
+
+  mealPlan.forEach((day, idx) => {
+    const dStr  = day.date.toLocaleDateString('de-DE', { day:'2-digit', month:'2-digit' });
+    const dName = ['So','Mo','Di','Mi','Do','Fr','Sa'][day.dow];
+    const dFull = ['Sonntag','Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag'][day.dow];
+
+    if (idx === 0 || idx === 7) {
+      const wl = document.createElement('div');
+      wl.className = 'week-label';
+      wl.textContent = idx === 0 ? 'Woche 1' : 'Woche 2';
+      container.appendChild(wl);
+    }
+
+    let bdg = '';
+    if (day.dow === 0)       bdg = badge('badge-sunday',  'Sonntag');
+    else if (day.isMealPrep) bdg = badge('badge-prep',    'Meal Prep');
+    else if (day.isReste)    bdg = badge('badge-reste',   'Reste');
+    else if (day.dow >= 5)   bdg = badge('badge-weekend', 'Wochenende');
+
+    const card = document.createElement('div');
+    card.className = 'day-card';
+    card.dataset.idx = idx;
+    card.innerHTML = `
+      <div class="day-header">
+        <span class="day-name">${dName} ${dStr}</span>
+        ${bdg}
+      </div>
+      <div class="meal-row">
+        <span class="drag-handle" title="Verschieben">⠿</span>
+        <div class="meal-info">
+          <div class="meal-name">${day.recipe?.name || '—'}</div>
+          <div class="meal-sub">${day.isReste ? 'Aufgewärmt von gestern' : (day.recipe?.aufwand||'')}</div>
+        </div>
+        ${day.recipe ? catPill(day.recipe.cat) : ''}
+        <div class="stepper">
+          <button class="stepper-btn" onclick="changePax(${idx},-1)">−</button>
+          <span class="stepper-val" id="pax-${idx}">${day.persons}</span>
+          <button class="stepper-btn" onclick="changePax(${idx},+1)">+</button>
+        </div>
+      </div>`;
+    container.appendChild(card);
+  });
+
+  // Drag & Drop
+  new Sortable(container, {
+    animation:   150,
+    handle:      '.drag-handle',
+    ghostClass:  'sortable-ghost',
+    chosenClass: 'sortable-chosen',
+    filter:      '.week-label',
+    onEnd(evt) {
+      const moved = mealPlan.splice(evt.oldDraggableIndex, 1)[0];
+      mealPlan.splice(evt.newDraggableIndex, 0, moved);
+      showToast('Reihenfolge angepasst');
+    }
+  });
+}
+
+function changePax(idx, delta) {
+  mealPlan[idx].persons = Math.max(1, Math.min(6, mealPlan[idx].persons + delta));
+  document.getElementById(`pax-${idx}`).textContent = mealPlan[idx].persons;
+  // Rebuild shopping if list is visible
+  buildShopping();
+  if (!document.getElementById('panel-shopping').classList.contains('active')) return;
+  renderShopping();
+}
+
+// ── Shopping List ──────────────────────────────────────────────────────────
+const RECIPE_INGREDIENTS = {
+  1:  [{ cat:"Fleisch",    name:"Hackfleisch",   amount:"400g" }, { cat:"Trockenwaren", name:"Spaghetti", amount:"500g" }, { cat:"Gemüse", name:"Zwiebeln", amount:"2 Stk." }],
+  2:  [{ cat:"Fleisch",    name:"Hähnchenbrust", amount:"600g" }, { cat:"Trockenwaren", name:"Reis",      amount:"400g" }, { cat:"Gemüse", name:"Paprika",  amount:"2 Stk." }],
+  4:  [{ cat:"Trockenwaren",name:"Risotto-Reis", amount:"360g" }, { cat:"Sonstiges",   name:"Parmesan",  amount:"100g" }, { cat:"Gemüse", name:"Champignons","amount":"300g" }],
+  7:  [{ cat:"Fleisch",    name:"Schweinebraten",amount:"1.2kg"}, { cat:"Gemüse",      name:"Möhren",    amount:"4 Stk."}, { cat:"Gemüse", name:"Sellerie", amount:"1 Stk." }],
+  8:  [{ cat:"Fleisch",    name:"Hähnchenfilet", amount:"600g" }, { cat:"Trockenwaren", name:"Basmatireis","amount":"400g"}, { cat:"Sonstiges","name":"Kokosmilch","amount":"400ml"}],
+  10: [{ cat:"Fleisch",    name:"Rindfleisch",   amount:"800g" }, { cat:"Gemüse",      name:"Zwiebeln",  amount:"3 Stk."}, { cat:"Gemüse", name:"Paprika",  amount:"3 Stk." }],
+};
+
+const MOCK_OFFERS = { "Hähnchenbrust":"2,79 €/kg", "Risotto-Reis":"0,99 €", "Hackfleisch":"3,99 €/kg" };
+
+function buildShopping() {
+  const map = {};
+
+  mealPlan.forEach(day => {
+    if (!day.recipe || day.isReste) return;
+    const ings = RECIPE_INGREDIENTS[day.recipe.id];
+    if (!ings) return;
+    ings.forEach(ing => {
+      const key = ing.name;
+      if (!map[key]) map[key] = { ...ing, done:false };
+    });
+  });
+
+  // Pantry items that are needed soon
+  PANTRY_DATA.filter(p => p.daysLeft <= 5).forEach(p => {
+    if (!map[p.name]) map[p.name] = { cat:"Vorräte", name:p.name, amount:"—", done:false };
+  });
+
+  shopping = Object.values(map);
+}
+
+function renderShopping() {
+  const container = document.getElementById('shopping-list');
+  container.innerHTML = '';
+
+  if (!shopping.length) {
+    container.innerHTML = '<p style="color:var(--text-muted);font-size:14px;padding:16px 0">Erstelle zuerst einen Plan.</p>';
+    return;
+  }
+
+  const byCat = {};
+  shopping.forEach((item, i) => {
+    if (!byCat[item.cat]) byCat[item.cat] = [];
+    byCat[item.cat].push({ ...item, i });
+  });
+
+  const catOrder = ["Fleisch","Gemüse","Molkerei","Trockenwaren","Sonstiges","Vorräte"];
+  const sorted   = [...Object.keys(byCat)].sort((a,b) => {
+    const ai = catOrder.indexOf(a), bi = catOrder.indexOf(b);
+    return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
+  });
+
+  sorted.forEach(cat => {
+    const ch = document.createElement('div');
+    ch.className = 'cat-header';
+    ch.textContent = cat;
+    container.appendChild(ch);
+
+    byCat[cat].forEach(({ name, amount, done, i }) => {
+      const offer = MOCK_OFFERS[name];
+      const el    = document.createElement('div');
+      el.className = `shop-item ${done ? 'done' : ''}`;
+      el.innerHTML = `
+        <div class="check-circle ${done?'on':''}" onclick="toggleItem(${i})">
+          ${done ? '✓' : ''}
+        </div>
+        <span class="item-name">${name}</span>
+        ${offer ? `<span class="offer-badge">🏷 ${offer}</span>` : ''}
+        <span class="item-amount">${amount}</span>`;
+      container.appendChild(el);
+    });
+  });
+}
+
+function toggleItem(idx) {
+  shopping[idx].done = !shopping[idx].done;
+  renderShopping();
+}
+
+// ── Pantry ─────────────────────────────────────────────────────────────────
+function renderPantry() {
+  const container = document.getElementById('pantry-list');
+  PANTRY_DATA.forEach(item => {
+    const s   = item.daysLeft <= 3 ? 'needed' : item.daysLeft <= 7 ? 'soon' : 'ok';
+    const lbl = s === 'needed' ? 'Kaufen!' : s === 'soon' ? 'Bald fällig' : 'OK';
+    const el  = document.createElement('div');
+    el.className = 'pantry-item';
+    el.innerHTML = `
+      <div class="pantry-emoji">${item.emoji}</div>
+      <div class="pantry-info">
+        <div class="pantry-name">${item.name}</div>
+        <div class="pantry-sub">Alle ${item.interval} · noch ${item.daysLeft} Tage</div>
+      </div>
+      <div class="status-badge status-${s}">${lbl}</div>`;
+    container.appendChild(el);
+  });
+}
+
+// ── Navigation ─────────────────────────────────────────────────────────────
+function switchTab(el) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById(`panel-${el.dataset.panel}`).classList.add('active');
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+renderPantry();
+generatePlan();
+</script>
+</body>
+</html>
