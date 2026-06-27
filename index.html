@@ -374,18 +374,20 @@ let pantryItems   = [];
 
 // ── API ────────────────────────────────────────────────────────
 async function apiCall(action, extraParams = {}) {
+  const initDataEncoded = INIT_DATA
+    ? btoa(unescape(encodeURIComponent(INIT_DATA)))
+    : "";
+
   const params = new URLSearchParams({
     action,
-    initData: INIT_DATA,
+    initData: initDataEncoded,
     ...extraParams,
   });
 
   const response = await fetch(`${API_URL}?${params.toString()}`);
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
   const data = await response.json();
   if (data.error) throw new Error(data.error);
-
   return data;
 }
 
