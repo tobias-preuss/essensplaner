@@ -11,16 +11,17 @@
     --bg:           #F7F7F5;
     --surface:      #FFFFFF;
     --surface-we:   #EAF3EC;
-    --surface-lock: #F5F5F2;
+    --surface-lock: #F0F0EE;
     --border:       rgba(0,0,0,0.07);
     --text:         #1A1A18;
     --text-muted:   #7A7A74;
+    --text-locked:  #9A9A94;
     --accent:       #3D7F4F;
     --accent-bg:    #EAF3EC;
     --accent-text:  #2A5C37;
     --warn:         #C0541A;
     --warn-bg:      #FDF0E8;
-    --locked-border:#F0C040;
+    --locked-border:#D4A800;
     --reste-bg:     #F0EDF8;
     --reste-text:   #5B3F8A;
     --sunday-bg:    #FDECEA;
@@ -38,13 +39,13 @@
     -webkit-tap-highlight-color: transparent;
   }
 
-  /* Tabs */
+  /* ── Tabs ─────────────────────────────────────────────────── */
   .tabs { display: flex; height: var(--tab-h); background: var(--surface); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 100; }
   .tab { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 10px; font-weight: 500; color: var(--text-muted); cursor: pointer; border-bottom: 2px solid transparent; letter-spacing: 0.3px; transition: color 0.15s, border-color 0.15s; user-select: none; }
   .tab .icon { font-size: 20px; line-height: 1; }
   .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 
-  /* Status Bar */
+  /* ── Status Bar ───────────────────────────────────────────── */
   .status-bar { height: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 13px; font-weight: 500; transition: height 0.2s, opacity 0.2s; opacity: 0; }
   .status-bar.visible { height: var(--status-h); opacity: 1; }
   .status-bar.loading { background: var(--accent-bg); color: var(--accent-text); }
@@ -53,32 +54,50 @@
   .spinner { width: 14px; height: 14px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: spin 0.6s linear infinite; flex-shrink: 0; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  /* Panel */
+  /* ── Panel ────────────────────────────────────────────────── */
   .panel { display: none; padding: 12px 12px 80px; }
   .panel.active { display: block; }
 
-  /* Buttons */
+  /* ── Buttons ──────────────────────────────────────────────── */
   .action-row { display: flex; gap: 8px; margin-bottom: 14px; }
   .btn { flex: 1; height: 40px; border: none; border-radius: var(--radius-sm); font-size: 13px; font-weight: 600; cursor: pointer; transition: opacity 0.15s; display: flex; align-items: center; justify-content: center; gap: 6px; }
   .btn:active { opacity: 0.75; }
   .btn:disabled { opacity: 0.45; cursor: not-allowed; }
   .btn-primary   { background: var(--accent); color: #fff; }
   .btn-secondary { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
-  .btn-sm { flex: 0 0 auto; height: 40px; padding: 0 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 16px; font-weight: 600; cursor: pointer; background: var(--surface); color: var(--text); transition: opacity 0.15s; }
+  .btn-sm { flex: 0 0 auto; height: 40px; padding: 0 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 16px; cursor: pointer; background: var(--surface); color: var(--text); }
 
-  /* Day Card */
-  .day-card { border-radius: var(--radius); border: 1px solid var(--border); margin-bottom: 7px; overflow: hidden; background: var(--surface); transition: box-shadow 0.15s, background 0.15s; }
+  /* ── Day Card ─────────────────────────────────────────────── */
+  .day-card {
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    margin-bottom: 7px;
+    overflow: hidden;
+    background: var(--surface);
+    transition: box-shadow 0.15s, background 0.15s, border-color 0.15s;
+    position: relative;
+  }
   .day-card.weekend { background: var(--surface-we); }
-  .day-card.locked  { background: var(--surface-lock); border-color: var(--locked-border); }
-  .day-card.locked.weekend { background: var(--surface-lock); }
+  .day-card.locked  {
+    background: var(--surface-lock) !important;
+    border-color: var(--locked-border);
+  }
   .day-card.sortable-chosen { box-shadow: 0 6px 24px rgba(0,0,0,0.13); }
   .day-card.sortable-ghost  { opacity: 0.25; }
 
+  /* Flash-Animation nach Regenerierung */
+  @keyframes flashGreen {
+    0%   { background-color: #A8D5B0; }
+    100% { background-color: inherit; }
+  }
+  .day-card.flash { animation: flashGreen 1.6s ease-out forwards; }
+
+  /* ── Day Header ───────────────────────────────────────────── */
   .day-header { display: flex; align-items: center; padding: 8px 13px; border-bottom: 1px solid var(--border); gap: 7px; }
   .day-name { font-size: 12px; font-weight: 600; color: var(--text-muted); min-width: 52px; }
+  .day-card.locked .day-name { color: var(--text-locked); }
 
   .badge { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 20px; }
-  .badge-sunday { background: var(--sunday-bg); color: var(--sunday-text); }
   .badge-prep   { background: #E8F4FD; color: #1A6B9A; }
   .badge-reste  { background: var(--reste-bg); color: var(--reste-text); }
 
@@ -86,10 +105,25 @@
   .icon-btn { background: none; border: none; cursor: pointer; font-size: 17px; padding: 3px 5px; border-radius: 6px; line-height: 1; color: var(--text-muted); transition: background 0.12s; }
   .icon-btn:active { background: var(--border); }
 
+  /* ── Lock icon SVG ────────────────────────────────────────── */
+  .lock-icon { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; cursor: pointer; }
+  .lock-icon svg { width: 18px; height: 18px; }
+
+  /* ── Meal Row ─────────────────────────────────────────────── */
   .meal-row { display: flex; align-items: center; padding: 10px 13px; gap: 9px; }
   .drag-handle { color: var(--text-muted); opacity: 0.28; font-size: 17px; cursor: grab; flex-shrink: 0; touch-action: none; line-height: 1; }
+  .day-card.locked .drag-handle { opacity: 0.1; cursor: not-allowed; pointer-events: none; }
+
   .meal-info { flex: 1; min-width: 0; }
-  .meal-name { font-size: 15px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* Meal-Name: normaler Zustand und Lade-Zustand */
+  .meal-name {
+    font-size: 15px; font-weight: 500;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    transition: color 0.2s;
+  }
+  .day-card.locked .meal-name { color: var(--text-locked); }
+  .meal-name.loading-text { color: var(--accent); display: flex; align-items: center; gap: 6px; font-size: 13px; }
 
   .cat-pill { font-size: 10px; font-weight: 600; padding: 3px 8px; border-radius: 20px; flex-shrink: 0; text-transform: capitalize; }
   .cat-nudeln     { background: #FDECEA; color: #8B2618; }
@@ -97,14 +131,17 @@
   .cat-kartoffeln { background: var(--accent-bg); color: var(--accent-text); }
   .cat-fleisch    { background: #FDECEA; color: #922B21; }
   .cat-default    { background: #F0EFED; color: var(--text-muted); }
+  .day-card.locked .cat-pill { opacity: 0.5; }
 
-  /* Stepper */
+  /* ── Stepper ──────────────────────────────────────────────── */
   .stepper { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
   .stepper-btn { width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 17px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background 0.12s; line-height: 1; flex-shrink: 0; }
   .stepper-btn:active { background: var(--border); }
   .stepper-val { font-size: 14px; font-weight: 600; min-width: 14px; text-align: center; }
+  .day-card.locked .stepper-btn { opacity: 0.4; }
+  .day-card.locked .stepper-val { color: var(--text-locked); }
 
-  /* Bottom Sheet */
+  /* ── Bottom Sheet ─────────────────────────────────────────── */
   .sheet-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 200; align-items: flex-end; }
   .sheet-overlay.open { display: flex; }
   .sheet { width: 100%; max-width: 430px; margin: 0 auto; background: var(--surface); border-radius: var(--radius) var(--radius) 0 0; padding: 20px 16px 36px; }
@@ -117,7 +154,7 @@
   .sheet-btn .sub { font-size: 12px; color: var(--text-muted); margin-top: 3px; }
   .sheet-btn.primary .sub { color: rgba(255,255,255,0.72); }
 
-  /* Shopping */
+  /* ── Shopping ─────────────────────────────────────────────── */
   .cat-header { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-muted); padding: 14px 2px 6px; }
   .shop-item { display: flex; align-items: center; background: var(--surface); border-radius: var(--radius-sm); border: 1px solid var(--border); padding: 11px 13px; margin-bottom: 6px; gap: 11px; transition: opacity 0.2s; }
   .shop-item.done { opacity: 0.38; }
@@ -127,7 +164,7 @@
   .item-name { flex: 1; font-size: 15px; }
   .item-amount { font-size: 13px; color: var(--text-muted); font-weight: 500; white-space: nowrap; }
 
-  /* Pantry */
+  /* ── Pantry ───────────────────────────────────────────────── */
   .pantry-item { display: flex; align-items: center; background: var(--surface); border-radius: var(--radius-sm); border: 1px solid var(--border); padding: 12px 13px; margin-bottom: 6px; gap: 11px; }
   .pantry-info { flex: 1; }
   .pantry-name { font-size: 15px; font-weight: 500; }
@@ -137,7 +174,7 @@
   .pill-soon   { background: var(--warn-bg);   color: var(--warn); }
   .pill-needed { background: var(--sunday-bg); color: var(--sunday-text); }
 
-  /* Empty */
+  /* ── Empty ────────────────────────────────────────────────── */
   .empty { text-align: center; padding: 48px 24px; color: var(--text-muted); font-size: 14px; line-height: 1.5; }
   .empty .empty-icon { font-size: 36px; margin-bottom: 12px; display: block; }
 </style>
@@ -161,16 +198,14 @@
   <span id="status-text"></span>
 </div>
 
-<!-- PLAN -->
 <div id="panel-plan" class="panel active">
   <div class="action-row">
     <button class="btn btn-primary" onclick="generatePlan()" id="btn-generate">✨ Neuer Plan</button>
-    <button class="btn btn-secondary" onclick="confirmPlan()" id="btn-confirm">🛒 Einkaufsliste erstellen</button>
+    <button class="btn btn-secondary" onclick="confirmPlan()">🛒 Einkaufsliste erstellen</button>
   </div>
   <div id="plan-list"></div>
 </div>
 
-<!-- SHOPPING -->
 <div id="panel-shopping" class="panel">
   <div class="action-row">
     <button class="btn-sm" onclick="loadShoppingList()">↺</button>
@@ -179,12 +214,10 @@
   <div id="shopping-list"></div>
 </div>
 
-<!-- PANTRY -->
 <div id="panel-pantry" class="panel">
   <div id="pantry-list"></div>
 </div>
 
-<!-- Bottom Sheet -->
 <div class="sheet-overlay" id="day-sheet" onclick="closeSheet(event)">
   <div class="sheet">
     <div class="sheet-title" id="sheet-title"></div>
@@ -197,7 +230,6 @@
 const tg        = window.Telegram?.WebApp;
 const API_URL   = "https://script.google.com/macros/s/AKfycby7ctVegsR8rC8CZMWS5iEOvEMORyVFvnPJOQXp1BdreB4tgn4TPRLyqqDYE87PqdqjZg/exec";
 const INIT_DATA = tg?.initData || "";
-
 if (tg) { tg.ready(); tg.expand(); }
 
 // ── State ──────────────────────────────────────────────────────
@@ -205,8 +237,7 @@ let mealPlan      = [];
 let lockedDays    = new Set();
 let shoppingItems = [];
 let pantryItems   = [];
-let recipes       = [];
-let activeSheetIdx = null;
+let originalDates = [];
 
 const DAYS_FULL  = ["Sonntag","Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag"];
 const DAYS_SHORT = ["So","Mo","Di","Mi","Do","Fr","Sa"];
@@ -236,42 +267,50 @@ function hideStatus(delay = 0) {
 function showSuccess(msg) { showStatus(msg, "success"); hideStatus(2500); }
 function showError(msg)   { showStatus(msg, "error");   hideStatus(3500); }
 
-// ── Datum-Helfer ───────────────────────────────────────────────
-/**
- * Berechnet für einen sortierten Plan die korrekten Datum-Labels neu.
- * Nach Drag & Drop wandern Gerichte, aber die Datums-Slots bleiben fest —
- * Montag bleibt Montag, egal welches Gericht dort landet.
- * Wir ermitteln die originalen Datum-Slots aus dem ersten Laden und
- * weisen sie nach jeder Umsortierung neu zu.
- */
-let originalDates = []; // wird beim ersten Laden gespeichert
+// ── SVG Lock Icons ─────────────────────────────────────────────
+function lockIconSvg(locked) {
+  if (locked) {
+    // Geschlossenes Schloss
+    return `<svg viewBox="0 0 24 24" fill="none" stroke="#D4A800" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="5" y="11" width="14" height="10" rx="2"/>
+      <path d="M8 11V7a4 4 0 0 1 8 0v4"/>
+    </svg>`;
+  } else {
+    // Offenes Schloss: Bügel geht nach rechts oben weg
+    return `<svg viewBox="0 0 24 24" fill="none" stroke="#9A9A94" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="5" y="11" width="14" height="10" rx="2"/>
+      <path d="M8 11V7a4 4 0 0 1 8 0" />
+      <path d="M16 7h2" stroke-width="2.2"/>
+    </svg>`;
+  }
+}
 
+// ── Datum-Helfer ───────────────────────────────────────────────
 function syncDatesToPlan() {
-  // Ordne jedem Slot sein Datum zu (Datum bleibt fix, Gericht wandert)
   mealPlan.forEach((day, idx) => {
     if (originalDates[idx]) {
       day.date      = originalDates[idx].date;
       day.dayOfWeek = originalDates[idx].dayOfWeek;
+      day.isMealPrep = PLANNING_RULES.MEAL_PREP_DAYS.includes(originalDates[idx].dayOfWeek);
+      day.isReste    = PLANNING_RULES.RESTE_DAYS.includes(originalDates[idx].dayOfWeek);
     }
   });
 }
+
+const PLANNING_RULES = {
+  MEAL_PREP_DAYS: [1, 3], // Mo, Mi
+  RESTE_DAYS:    [2, 4],  // Di, Do
+};
 
 // ── Plan laden ─────────────────────────────────────────────────
 async function loadPlan() {
   showStatus("Lade Essensplan...");
   try {
-    const [planData, recipeData] = await Promise.all([
-      apiCall("getMealPlan"),
-      apiCall("getRecipes"),
-    ]);
+    const [planData] = await Promise.all([apiCall("getMealPlan")]);
     mealPlan = planData.mealPlan || [];
-    recipes  = recipeData.recipes || [];
-
-    // Originale Datum-Slots beim ersten Laden merken
     if (originalDates.length === 0) {
       originalDates = mealPlan.map(d => ({ date: d.date, dayOfWeek: d.dayOfWeek }));
     }
-
     renderPlan();
     hideStatus();
   } catch (err) {
@@ -280,16 +319,14 @@ async function loadPlan() {
   }
 }
 
-// ── Plan komplett neu generieren ───────────────────────────────
+// ── Plan neu generieren ────────────────────────────────────────
 async function generatePlan() {
   const btn = document.getElementById("btn-generate");
   btn.disabled = true;
   showStatus("Erstelle neuen Plan...");
   try {
-    await apiCall("generatePlan", {
-      lockedIndices: [...lockedDays].join(","),
-    });
-    const data = await apiCall("getMealPlan");
+    await apiCall("generatePlan", { lockedIndices: [...lockedDays].join(",") });
+    const data    = await apiCall("getMealPlan");
     mealPlan      = data.mealPlan || [];
     originalDates = mealPlan.map(d => ({ date: d.date, dayOfWeek: d.dayOfWeek }));
     renderPlan();
@@ -302,7 +339,6 @@ async function generatePlan() {
   }
 }
 
-// ── Einkaufsliste erstellen ────────────────────────────────────
 async function confirmPlan() {
   showStatus("Erstelle Einkaufsliste...");
   try {
@@ -332,41 +368,39 @@ function renderPlan() {
     const date     = new Date(day.date);
     const dow      = day.dayOfWeek;
     const dateStr  = `${String(date.getDate()).padStart(2,"0")}.${String(date.getMonth()+1).padStart(2,"0")}`;
-    const isWE     = dow === 0 || dow === 6;   // Sa + So
+    const isWE     = dow === 0 || dow === 6;
     const isLocked = lockedDays.has(idx);
 
-    // Badge — nur Meal-Prep und Reste, kein Fleisch-Badge oben
     let badgeHtml = "";
     if (day.isMealPrep) badgeHtml = `<span class="badge badge-prep">Meal Prep</span>`;
     else if (day.isReste) badgeHtml = `<span class="badge badge-reste">Reste</span>`;
 
-    // Kategorie-Pill (unten neben Stepper) — inkl. Fleisch
     const tag      = (day.recipeTags || []).find(t =>
       ["nudeln","reis","kartoffeln","fleisch"].includes(t.toLowerCase())
     );
     const catClass = tag ? `cat-${tag.toLowerCase()}` : "cat-default";
     const catHtml  = tag ? `<span class="cat-pill ${catClass}">${tag}</span>` : "";
 
-    // Schloss-Icon: offenes vs. geschlossenes Schloss
-    const lockIcon = isLocked ? "🔒" : "🔓";
-
     const card = document.createElement("div");
     card.className   = `day-card${isWE ? " weekend" : ""}${isLocked ? " locked" : ""}`;
     card.dataset.idx = idx;
+    card.id          = `day-card-${idx}`;
 
     card.innerHTML = `
       <div class="day-header">
         <span class="day-name">${DAYS_SHORT[dow]} ${dateStr}</span>
         ${badgeHtml}
         <div class="day-header-actions">
-          <button class="icon-btn" onclick="toggleLock(${idx})" title="${isLocked ? "Entsperren" : "Fixieren"}">${lockIcon}</button>
+          <span class="lock-icon" onclick="toggleLock(${idx})" title="${isLocked ? "Entsperren" : "Fixieren"}">
+            ${lockIconSvg(isLocked)}
+          </span>
           <button class="icon-btn" onclick="openDaySheet(${idx})" title="Neu generieren">↺</button>
         </div>
       </div>
       <div class="meal-row">
-        <span class="drag-handle">⠿</span>
+        <span class="drag-handle" data-idx="${idx}">⠿</span>
         <div class="meal-info">
-          <div class="meal-name">${day.recipeName || "—"}</div>
+          <div class="meal-name" id="meal-name-${idx}">${day.recipeName || "—"}</div>
         </div>
         ${catHtml}
         <div class="stepper">
@@ -379,50 +413,82 @@ function renderPlan() {
     container.appendChild(card);
   });
 
-  // Drag & Drop
+  setupSortable(container);
+}
+
+// ── Sortable mit Lock-Unterstützung ────────────────────────────
+function setupSortable(container) {
   if (window._sortable) window._sortable.destroy();
+
   window._sortable = new Sortable(container, {
-    animation:   180,
+    animation:   200,
     handle:      ".drag-handle",
     ghostClass:  "sortable-ghost",
     chosenClass: "sortable-chosen",
+
+    // Drag-Beginn verhindern wenn Karte gelockt ist
+    onStart(evt) {
+      const idx = parseInt(evt.item.dataset.idx, 10);
+      if (lockedDays.has(idx)) {
+        evt.preventDefault();
+        return false;
+      }
+    },
+
+    onMove(evt) {
+      const draggedIdx = parseInt(evt.dragged.dataset.idx, 10);
+      const targetIdx  = parseInt(evt.related?.dataset.idx ?? "-1", 10);
+
+      // Gelockte Karte darf nicht verschoben werden
+      if (lockedDays.has(draggedIdx)) return false;
+
+      // Über eine gelockte Karte kann nicht gesprungen werden:
+      // Bestimme Richtung und blockiere wenn Ziel eine gelockte Position überspringen würde
+      if (targetIdx >= 0 && lockedDays.has(targetIdx)) return false;
+
+      return true;
+    },
+
     onEnd(evt) {
       const oldIdx = evt.oldIndex;
       const newIdx = evt.newIndex;
       if (oldIdx === newIdx) return;
 
-      // Gericht in mealPlan verschieben
+      // Prüfe ob Zielposition durch eine gelockte Karte blockiert wird
+      // (SortableJS hat onMove bereits gefiltert, aber als Sicherheit nochmal)
+      if (lockedDays.has(newIdx)) {
+        // Rückgängig machen: Plan nicht ändern, neu rendern
+        renderPlan();
+        return;
+      }
+
+      // Plan-Array aktualisieren
       const moved = mealPlan.splice(oldIdx, 1)[0];
       mealPlan.splice(newIdx, 0, moved);
 
-      // Datum-Slots neu zuweisen (Datum bleibt am Slot, Gericht wandert)
+      // Datum-Slots dem neuen Slot zuweisen
       syncDatesToPlan();
 
       // Locked-Indizes anpassen
       const newLocked = new Set();
       lockedDays.forEach(i => {
-        let adjusted = i;
-        if (i === oldIdx) {
-          adjusted = newIdx;
-        } else if (oldIdx < newIdx && i > oldIdx && i <= newIdx) {
-          adjusted = i - 1;
-        } else if (oldIdx > newIdx && i >= newIdx && i < oldIdx) {
-          adjusted = i + 1;
+        let adj = i;
+        if (oldIdx < newIdx) {
+          if (i > oldIdx && i <= newIdx) adj = i - 1;
+        } else {
+          if (i >= newIdx && i < oldIdx) adj = i + 1;
         }
-        newLocked.add(adjusted);
+        newLocked.add(adj);
       });
       lockedDays = newLocked;
 
-      // Karten neu rendern (Datum-Labels aktualisieren)
       renderPlan();
-
-      // Ins Sheet zurückschreiben
       savePlanOrder();
     },
   });
 }
 
-// ── Reihenfolge ins Sheet schreiben ───────────────────────────
+// ── Reihenfolge speichern ──────────────────────────────────────
 async function savePlanOrder() {
   showStatus("Speichere Reihenfolge...");
   try {
@@ -439,7 +505,7 @@ async function savePlanOrder() {
   }
 }
 
-// ── Lock / Unlock ──────────────────────────────────────────────
+// ── Lock ───────────────────────────────────────────────────────
 function toggleLock(idx) {
   if (lockedDays.has(idx)) lockedDays.delete(idx);
   else lockedDays.add(idx);
@@ -454,22 +520,17 @@ function changePax(idx, delta) {
 
 // ── Bottom Sheet ───────────────────────────────────────────────
 function openDaySheet(idx) {
-  activeSheetIdx = idx;
-  const day  = mealPlan[idx];
-  const dow  = day.dayOfWeek;
-  const date = new Date(day.date);
-  const label = `${DAYS_FULL[dow]}, ${String(date.getDate()).padStart(2,"0")}.${String(date.getMonth()+1).padStart(2,"0")}`;
+  const day    = mealPlan[idx];
+  const dow    = day.dayOfWeek;
+  const date   = new Date(day.date);
+  const label  = `${DAYS_FULL[dow]}, ${String(date.getDate()).padStart(2,"0")}.${String(date.getMonth()+1).padStart(2,"0")}`;
 
   document.getElementById("sheet-title").textContent = label;
   const btns = document.getElementById("sheet-buttons");
   btns.innerHTML = "";
 
-  // Finde den zugehörigen Folgetag (Reste nach Meal-Prep)
-  const nextDay = mealPlan[idx + 1];
+  const nextDay      = mealPlan[idx + 1];
   const hasResteAfter = nextDay && nextDay.isReste;
-  // Finde den zugehörigen Vortag (Meal-Prep vor Reste)
-  const prevDay = mealPlan[idx - 1];
-  const hasPrepBefore = prevDay && prevDay.isMealPrep;
 
   if (day.isReste) {
     document.getElementById("sheet-subtitle").textContent =
@@ -516,26 +577,67 @@ function openDaySheet(idx) {
 function closeSheet(event) {
   if (event && event.target !== document.getElementById("day-sheet")) return;
   document.getElementById("day-sheet").classList.remove("open");
-  activeSheetIdx = null;
 }
 
 // ── Einzelnen Tag neu generieren ───────────────────────────────
 async function regenerateDay(idx, mode) {
   document.getElementById("day-sheet").classList.remove("open");
+
+  // Status oben
   showStatus("Generiere Gericht...");
+
+  // Status direkt im Tag-Karte anzeigen
+  const nameEl = document.getElementById(`meal-name-${idx}`);
+  const originalName = nameEl ? nameEl.textContent : "";
+  if (nameEl) {
+    nameEl.innerHTML = `<span class="spinner" style="width:11px;height:11px;border-width:1.5px"></span> Generiere Gericht...`;
+    nameEl.className = "meal-name loading-text";
+  }
+
+  // Zweiten betroffenen Tag falls nötig
+  let secondIdx = null;
+  if (mode === "with-prep" && idx > 0)        secondIdx = idx - 1;
+  if (mode === "with-reste" && idx + 1 < mealPlan.length) secondIdx = idx + 1;
+
+  const secondNameEl = secondIdx !== null ? document.getElementById(`meal-name-${secondIdx}`) : null;
+  if (secondNameEl) {
+    secondNameEl.innerHTML = `<span class="spinner" style="width:11px;height:11px;border-width:1.5px"></span> Generiere Gericht...`;
+    secondNameEl.className = "meal-name loading-text";
+  }
 
   try {
     const data = await apiCall("regenerateSingleDay", { index: idx, mode });
 
-    if (data.updatedDays) {
+    if (data.updatedDays && data.updatedDays.length > 0) {
       data.updatedDays.forEach(({ index: i, day }) => {
         mealPlan[i] = { ...mealPlan[i], ...day };
       });
     }
 
+    // Plan neu rendern (setzt Namen zurück)
     renderPlan();
+
+    // Flash-Animation auf betroffene Karten
+    const flashIndices = [idx];
+    if (secondIdx !== null) flashIndices.push(secondIdx);
+
+    flashIndices.forEach(i => {
+      const card = document.getElementById(`day-card-${i}`);
+      if (card) {
+        card.classList.remove("flash");
+        void card.offsetWidth; // reflow erzwingen
+        card.classList.add("flash");
+        setTimeout(() => card.classList.remove("flash"), 1800);
+      }
+    });
+
     showSuccess("Gericht aktualisiert ✓");
   } catch (err) {
+    // Originalname wiederherstellen
+    if (nameEl) {
+      nameEl.textContent = originalName;
+      nameEl.className   = "meal-name";
+    }
     showError("Konnte Gericht nicht ändern.");
     console.error(err);
   }
@@ -549,9 +651,7 @@ async function loadShoppingList() {
     shoppingItems = data.items || [];
     renderShopping();
     hideStatus();
-  } catch (err) {
-    showError("Einkaufsliste konnte nicht geladen werden.");
-  }
+  } catch (err) { showError("Einkaufsliste konnte nicht geladen werden."); }
 }
 
 async function toggleItem(index) {
@@ -604,9 +704,7 @@ async function loadPantry() {
     pantryItems = data.items || [];
     renderPantry();
     hideStatus();
-  } catch (err) {
-    showError("Vorräte konnten nicht geladen werden.");
-  }
+  } catch (err) { showError("Vorräte konnten nicht geladen werden."); }
 }
 
 function renderPantry() {
@@ -636,7 +734,6 @@ function renderPantry() {
 
 // ── Navigation ─────────────────────────────────────────────────
 const loaded = { plan: false, shopping: false, pantry: false };
-
 function switchTab(el) {
   document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
   document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
