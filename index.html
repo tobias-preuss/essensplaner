@@ -7,29 +7,33 @@
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
 <style>
-  /* ── Tokens ────────────────────────────────────────────── */
   :root {
-    --bg:          #F7F7F5;
-    --surface:     #FFFFFF;
-    --surface-2:   #F0EFED;
-    --border:      rgba(0,0,0,0.07);
-    --text:        #1A1A18;
-    --text-muted:  #7A7A74;
-    --accent:      #3D7F4F;
-    --accent-bg:   #EAF3EC;
-    --accent-text: #2A5C37;
-    --warn:        #C0541A;
-    --warn-bg:     #FDF0E8;
-    --rest-bg:     #F0EDF8;
-    --rest-text:   #5B3F8A;
-    --radius:      14px;
-    --radius-sm:   9px;
-    --tab-h:       56px;
-    --status-h:    44px;
+    --bg:           #F7F7F5;
+    --surface:      #FFFFFF;
+    --surface-we:   #F3F3F0;
+    --border:       rgba(0,0,0,0.07);
+    --text:         #1A1A18;
+    --text-muted:   #7A7A74;
+    --accent:       #3D7F4F;
+    --accent-bg:    #EAF3EC;
+    --accent-text:  #2A5C37;
+    --warn:         #C0541A;
+    --warn-bg:      #FDF0E8;
+    --locked-bg:    #FFF8E1;
+    --locked-text:  #7B5800;
+    --locked-border:#F0C040;
+    --reste-bg:     #F0EDF8;
+    --reste-text:   #5B3F8A;
+    --sunday-bg:    #FDECEA;
+    --sunday-text:  #8B2618;
+    --radius:       14px;
+    --radius-sm:    9px;
+    --tab-h:        56px;
+    --status-h:     44px;
   }
 
-  /* ── Reset ─────────────────────────────────────────────── */
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
   body {
     font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
     background: var(--bg);
@@ -40,7 +44,7 @@
     -webkit-tap-highlight-color: transparent;
   }
 
-  /* ── Tab Bar ────────────────────────────────────────────── */
+  /* ── Tabs ─────────────────────────────────────────────────── */
   .tabs {
     display: flex;
     height: var(--tab-h);
@@ -69,7 +73,7 @@
   .tab .icon { font-size: 20px; line-height: 1; }
   .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 
-  /* ── Status Bar ─────────────────────────────────────────── */
+  /* ── Status Bar ───────────────────────────────────────────── */
   .status-bar {
     height: 0;
     overflow: hidden;
@@ -79,17 +83,13 @@
     gap: 8px;
     font-size: 13px;
     font-weight: 500;
-    transition: height 0.2s ease, opacity 0.2s ease;
+    transition: height 0.2s, opacity 0.2s;
     opacity: 0;
   }
-  .status-bar.visible {
-    height: var(--status-h);
-    opacity: 1;
-  }
+  .status-bar.visible { height: var(--status-h); opacity: 1; }
   .status-bar.loading { background: var(--accent-bg); color: var(--accent-text); }
   .status-bar.success { background: var(--accent-bg); color: var(--accent-text); }
   .status-bar.error   { background: var(--warn-bg);   color: var(--warn); }
-
   .spinner {
     width: 14px; height: 14px;
     border: 2px solid currentColor;
@@ -100,11 +100,11 @@
   }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  /* ── Panel ──────────────────────────────────────────────── */
+  /* ── Panel ────────────────────────────────────────────────── */
   .panel { display: none; padding: 12px 12px 80px; }
   .panel.active { display: block; }
 
-  /* ── Action Row ─────────────────────────────────────────── */
+  /* ── Action Row ───────────────────────────────────────────── */
   .action-row {
     display: flex;
     gap: 8px;
@@ -124,31 +124,43 @@
     justify-content: center;
     gap: 6px;
   }
-  .btn:active { opacity: 0.75; }
+  .btn:active   { opacity: 0.75; }
   .btn:disabled { opacity: 0.45; cursor: not-allowed; }
   .btn-primary   { background: var(--accent); color: #fff; }
-  .btn-secondary { background: var(--surface-2); color: var(--text); }
-
-  /* ── Week Label ─────────────────────────────────────────── */
-  .week-label {
-    font-size: 11px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.8px;
-    color: var(--text-muted);
-    padding: 14px 2px 6px;
+  .btn-secondary { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+  .btn-sm {
+    flex: 0 0 auto;
+    height: 40px;
+    padding: 0 12px;
+    border: none;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    transition: opacity 0.15s;
   }
 
-  /* ── Day Card ───────────────────────────────────────────── */
+  /* ── Day Card ─────────────────────────────────────────────── */
   .day-card {
-    background: var(--surface);
     border-radius: var(--radius);
     border: 1px solid var(--border);
     margin-bottom: 7px;
     overflow: hidden;
+    background: var(--surface);
+    transition: box-shadow 0.15s;
   }
-  .day-card.sortable-chosen { box-shadow: 0 6px 24px rgba(0,0,0,0.12); }
-  .day-card.sortable-ghost  { opacity: 0.3; }
+  /* Wochenende: leicht grauer Hintergrund */
+  .day-card.weekend {
+    background: var(--surface-we);
+  }
+  .day-card.locked {
+    border-color: var(--locked-border);
+  }
+  .day-card.sortable-chosen { box-shadow: 0 6px 24px rgba(0,0,0,0.13); }
+  .day-card.sortable-ghost  { opacity: 0.25; }
 
   .day-header {
     display: flex;
@@ -157,19 +169,38 @@
     border-bottom: 1px solid var(--border);
     gap: 7px;
   }
-  .day-name  { font-size: 12px; font-weight: 600; color: var(--text-muted); min-width: 50px; }
+  .day-name { font-size: 12px; font-weight: 600; color: var(--text-muted); min-width: 52px; }
 
   .badge {
-    font-size: 10px;
-    font-weight: 600;
-    padding: 2px 8px;
-    border-radius: 20px;
-    letter-spacing: 0.2px;
+    font-size: 10px; font-weight: 600;
+    padding: 2px 8px; border-radius: 20px;
   }
-  .badge-sunday  { background: #FDECEA; color: #B03A2E; }
-  .badge-prep    { background: #E8F4FD; color: #1A6B9A; }
-  .badge-reste   { background: var(--rest-bg); color: var(--rest-text); }
-  .badge-weekend { background: var(--accent-bg); color: var(--accent-text); }
+  .badge-sunday { background: var(--sunday-bg); color: var(--sunday-text); }
+  .badge-prep   { background: #E8F4FD; color: #1A6B9A; }
+  .badge-reste  { background: var(--reste-bg); color: var(--reste-text); }
+  .badge-locked { background: var(--locked-bg); color: var(--locked-text); }
+
+  /* Header-Aktionen rechts */
+  .day-header-actions {
+    margin-left: auto;
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-shrink: 0;
+  }
+  .icon-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 16px;
+    padding: 2px 4px;
+    border-radius: 6px;
+    line-height: 1;
+    color: var(--text-muted);
+    transition: background 0.12s;
+  }
+  .icon-btn:active { background: var(--border); }
+  .icon-btn.locked { color: var(--locked-text); }
 
   .meal-row {
     display: flex;
@@ -179,7 +210,7 @@
   }
   .drag-handle {
     color: var(--text-muted);
-    opacity: 0.3;
+    opacity: 0.28;
     font-size: 17px;
     cursor: grab;
     flex-shrink: 0;
@@ -191,118 +222,106 @@
   .meal-sub     { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
 
   .cat-pill {
-    font-size: 10px;
-    font-weight: 600;
-    padding: 3px 8px;
-    border-radius: 20px;
-    flex-shrink: 0;
-    text-transform: capitalize;
+    font-size: 10px; font-weight: 600;
+    padding: 3px 8px; border-radius: 20px;
+    flex-shrink: 0; text-transform: capitalize;
   }
   .cat-nudeln     { background: #FDECEA; color: #8B2618; }
   .cat-reis       { background: #FEF5E4; color: #7D5108; }
   .cat-kartoffeln { background: var(--accent-bg); color: var(--accent-text); }
   .cat-fleisch    { background: #FDECEA; color: #922B21; }
-  .cat-default    { background: var(--surface-2); color: var(--text-muted); }
+  .cat-default    { background: #F0EFED; color: var(--text-muted); }
 
-  /* ── Stepper ─────────────────────────────────────────────── */
+  /* ── Stepper ──────────────────────────────────────────────── */
   .stepper { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
   .stepper-btn {
     width: 26px; height: 26px;
     border-radius: 50%;
     border: 1px solid var(--border);
-    background: var(--surface-2);
+    background: var(--surface);
     color: var(--text);
     font-size: 17px;
     display: flex; align-items: center; justify-content: center;
     cursor: pointer;
     transition: background 0.12s;
-    line-height: 1;
-    flex-shrink: 0;
+    line-height: 1; flex-shrink: 0;
   }
   .stepper-btn:active { background: var(--border); }
   .stepper-val { font-size: 14px; font-weight: 600; min-width: 14px; text-align: center; }
 
-  /* ── Shopping List ───────────────────────────────────────── */
-  .cat-header {
-    font-size: 11px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.6px;
-    color: var(--text-muted);
-    padding: 14px 2px 6px;
+  /* ── Bottom Sheet ─────────────────────────────────────────── */
+  .sheet-overlay {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.4);
+    z-index: 200;
+    align-items: flex-end;
   }
-  .shop-item {
-    display: flex;
-    align-items: center;
+  .sheet-overlay.open { display: flex; }
+  .sheet {
+    width: 100%; max-width: 430px;
+    margin: 0 auto;
     background: var(--surface);
-    border-radius: var(--radius-sm);
-    border: 1px solid var(--border);
-    padding: 11px 13px;
-    margin-bottom: 6px;
-    gap: 11px;
-    transition: opacity 0.2s;
+    border-radius: var(--radius) var(--radius) 0 0;
+    padding: 20px 16px 32px;
   }
-  .shop-item.done { opacity: 0.38; }
-  .shop-item.done .item-name { text-decoration: line-through; }
-
-  .check {
-    width: 24px; height: 24px;
-    border-radius: 50%;
-    border: 1.5px solid var(--border);
-    flex-shrink: 0;
-    cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 13px;
-    color: white;
-    transition: background 0.15s, border-color 0.15s;
-  }
-  .check.on { background: var(--accent); border-color: var(--accent); }
-
-  .item-name   { flex: 1; font-size: 15px; }
-  .item-amount { font-size: 13px; color: var(--text-muted); font-weight: 500; white-space: nowrap; }
-
-  /* ── Pantry ──────────────────────────────────────────────── */
-  .pantry-item {
-    display: flex;
-    align-items: center;
-    background: var(--surface);
-    border-radius: var(--radius-sm);
-    border: 1px solid var(--border);
-    padding: 12px 13px;
-    margin-bottom: 6px;
-    gap: 11px;
-  }
-  .pantry-emoji  { font-size: 22px; flex-shrink: 0; }
-  .pantry-info   { flex: 1; }
-  .pantry-name   { font-size: 15px; font-weight: 500; }
-  .pantry-sub    { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
-
-  .status-pill {
-    font-size: 11px;
-    font-weight: 600;
-    padding: 3px 10px;
-    border-radius: 20px;
-    flex-shrink: 0;
-    white-space: nowrap;
-  }
-  .pill-ok     { background: var(--accent-bg);  color: var(--accent-text); }
-  .pill-soon   { background: var(--warn-bg);    color: var(--warn); }
-  .pill-needed { background: #FDECEA;            color: #8B2618; }
-
-  /* ── Empty State ─────────────────────────────────────────── */
-  .empty {
+  .sheet-title {
+    font-size: 16px; font-weight: 700;
+    margin-bottom: 16px;
     text-align: center;
-    padding: 48px 24px;
-    color: var(--text-muted);
-    font-size: 14px;
-    line-height: 1.5;
+  }
+  .sheet-subtitle {
+    font-size: 13px; color: var(--text-muted);
+    text-align: center; margin-bottom: 16px;
+    line-height: 1.4;
+  }
+  .sheet-btn {
+    display: block; width: 100%;
+    padding: 14px 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 14px; font-weight: 500;
+    cursor: pointer; text-align: left;
+    margin-bottom: 8px;
+    transition: background 0.12s;
+  }
+  .sheet-btn:active { background: var(--bg); }
+  .sheet-btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .sheet-btn.cancel  { color: var(--text-muted); text-align: center; }
+  .sheet-btn .sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+  .sheet-btn.primary .sub { color: rgba(255,255,255,0.75); }
+
+  /* ── Empty ────────────────────────────────────────────────── */
+  .empty {
+    text-align: center; padding: 48px 24px;
+    color: var(--text-muted); font-size: 14px; line-height: 1.5;
   }
   .empty .empty-icon { font-size: 36px; margin-bottom: 12px; display: block; }
+
+  /* ── Shopping (minimal, nicht Fokus) ─────────────────────── */
+  .cat-header { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-muted); padding: 14px 2px 6px; }
+  .shop-item { display: flex; align-items: center; background: var(--surface); border-radius: var(--radius-sm); border: 1px solid var(--border); padding: 11px 13px; margin-bottom: 6px; gap: 11px; transition: opacity 0.2s; }
+  .shop-item.done { opacity: 0.38; }
+  .shop-item.done .item-name { text-decoration: line-through; }
+  .check { width: 24px; height: 24px; border-radius: 50%; border: 1.5px solid var(--border); flex-shrink: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 13px; color: white; transition: background 0.15s, border-color 0.15s; }
+  .check.on { background: var(--accent); border-color: var(--accent); }
+  .item-name { flex: 1; font-size: 15px; }
+  .item-amount { font-size: 13px; color: var(--text-muted); font-weight: 500; white-space: nowrap; }
+
+  /* ── Pantry ───────────────────────────────────────────────── */
+  .pantry-item { display: flex; align-items: center; background: var(--surface); border-radius: var(--radius-sm); border: 1px solid var(--border); padding: 12px 13px; margin-bottom: 6px; gap: 11px; }
+  .pantry-info { flex: 1; }
+  .pantry-name { font-size: 15px; font-weight: 500; }
+  .pantry-sub  { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+  .status-pill { font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 20px; flex-shrink: 0; white-space: nowrap; }
+  .pill-ok     { background: var(--accent-bg);  color: var(--accent-text); }
+  .pill-soon   { background: var(--warn-bg);    color: var(--warn); }
+  .pill-needed { background: var(--sunday-bg);  color: var(--sunday-text); }
 </style>
 </head>
 <body>
 
-<!-- Tab Bar -->
 <nav class="tabs">
   <div class="tab active" data-panel="plan" onclick="switchTab(this)">
     <span class="icon">📅</span>Plan
@@ -315,62 +334,61 @@
   </div>
 </nav>
 
-<!-- Status Bar -->
 <div class="status-bar" id="status-bar">
   <span class="spinner" id="status-spinner" style="display:none"></span>
   <span id="status-text"></span>
 </div>
 
-<!-- ═══════════ PLAN ═══════════ -->
+<!-- PLAN -->
 <div id="panel-plan" class="panel active">
   <div class="action-row">
-    <button class="btn btn-primary" onclick="generatePlan()" id="btn-generate">
-      ✨ Neuer Plan
-    </button>
-    <button class="btn btn-secondary" onclick="confirmPlan()" id="btn-confirm">
-      ✅ Bestätigen
-    </button>
+    <button class="btn btn-primary" onclick="generatePlan()" id="btn-generate">✨ Neuer Plan</button>
+    <button class="btn btn-secondary" onclick="confirmPlan()" id="btn-confirm">🛒 Einkaufsliste erstellen</button>
   </div>
   <div id="plan-list"></div>
 </div>
 
-<!-- ═══════════ SHOPPING ═══════════ -->
+<!-- SHOPPING -->
 <div id="panel-shopping" class="panel">
   <div class="action-row">
-    <button class="btn btn-secondary" onclick="loadShoppingList()" style="flex:0 0 40px; padding:0;">
-      ↺
-    </button>
-    <button class="btn btn-primary" onclick="confirmPlan()" style="flex:1">
-      ✅ Liste neu erstellen
-    </button>
+    <button class="btn-sm" onclick="loadShoppingList()">↺</button>
+    <button class="btn btn-primary" onclick="confirmPlan()">🛒 Liste neu erstellen</button>
   </div>
   <div id="shopping-list"></div>
 </div>
 
-<!-- ═══════════ PANTRY ═══════════ -->
+<!-- PANTRY -->
 <div id="panel-pantry" class="panel">
   <div id="pantry-list"></div>
 </div>
 
-<script>
-// ── Telegram WebApp ────────────────────────────────────────────
-const tg = window.Telegram?.WebApp;
-if (tg) {
-  tg.ready();
-  tg.expand();
-}
+<!-- Bottom Sheet: Tag-Optionen -->
+<div class="sheet-overlay" id="day-sheet" onclick="closeSheet(event)">
+  <div class="sheet">
+    <div class="sheet-title" id="sheet-title">Optionen</div>
+    <div class="sheet-subtitle" id="sheet-subtitle"></div>
+    <div id="sheet-buttons"></div>
+  </div>
+</div>
 
-const API_URL    = "https://script.google.com/macros/s/AKfycby7ctVegsR8rC8CZMWS5iEOvEMORyVFvnPJOQXp1BdreB4tgn4TPRLyqqDYE87PqdqjZg/exec";
-const INIT_DATA  = tg?.initData || "";
-// TEMPORÄR:
-/*if (tg) setTimeout(() => {
-  alert(INIT_DATA.substring(0, 300));
-}, 1500);*/
+<script>
+// ── Config ─────────────────────────────────────────────────────
+const tg       = window.Telegram?.WebApp;
+const API_URL  = "DEINE_APPS_SCRIPT_EXEC_URL_HIER";
+const INIT_DATA = tg?.initData || "";
+
+if (tg) { tg.ready(); tg.expand(); }
 
 // ── State ──────────────────────────────────────────────────────
-let mealPlan      = [];
+let mealPlan      = [];   // Array von Day-Objekten
+let lockedDays    = new Set(); // Set von Indizes (0-13) die gelockt sind
 let shoppingItems = [];
 let pantryItems   = [];
+let recipes       = [];   // Alle Rezepte für "Einzel-Regenerierung"
+let activeSheetIdx = null; // Index des aktuell geöffneten Sheets
+
+const DAYS_FULL = ["Sonntag","Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag"];
+const DAYS_SHORT = ["So","Mo","Di","Mi","Do","Fr","Sa"];
 
 // ── API ────────────────────────────────────────────────────────
 async function apiCall(action, extraParams = {}) {
@@ -378,12 +396,7 @@ async function apiCall(action, extraParams = {}) {
     ? btoa(unescape(encodeURIComponent(INIT_DATA)))
     : "";
 
-  const params = new URLSearchParams({
-    action,
-    initData: initDataEncoded,
-    ...extraParams,
-  });
-
+  const params = new URLSearchParams({ action, initData: initDataEncoded, ...extraParams });
   const response = await fetch(`${API_URL}?${params.toString()}`);
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   const data = await response.json();
@@ -391,39 +404,29 @@ async function apiCall(action, extraParams = {}) {
   return data;
 }
 
-// ── Status Bar ─────────────────────────────────────────────────
-function showStatus(message, type = "loading") {
-  const bar      = document.getElementById("status-bar");
-  const text     = document.getElementById("status-text");
-  const spinner  = document.getElementById("status-spinner");
-
-  bar.className      = `status-bar visible ${type}`;
-  text.textContent   = message;
-  spinner.style.display = type === "loading" ? "block" : "none";
+// ── Status ─────────────────────────────────────────────────────
+function showStatus(msg, type = "loading") {
+  const bar = document.getElementById("status-bar");
+  bar.className = `status-bar visible ${type}`;
+  document.getElementById("status-text").textContent = msg;
+  document.getElementById("status-spinner").style.display = type === "loading" ? "block" : "none";
 }
-
 function hideStatus(delay = 0) {
-  setTimeout(() => {
-    document.getElementById("status-bar").className = "status-bar";
-  }, delay);
+  setTimeout(() => { document.getElementById("status-bar").className = "status-bar"; }, delay);
 }
+function showSuccess(msg) { showStatus(msg, "success"); hideStatus(2500); }
+function showError(msg)   { showStatus(msg, "error");   hideStatus(3500); }
 
-function showSuccess(message) {
-  showStatus(message, "success");
-  hideStatus(2500);
-}
-
-function showError(message) {
-  showStatus(message, "error");
-  hideStatus(3500);
-}
-
-// ── Plan ───────────────────────────────────────────────────────
+// ── Plan laden ─────────────────────────────────────────────────
 async function loadPlan() {
   showStatus("Lade Essensplan...");
   try {
-    const data = await apiCall("getMealPlan");
-    mealPlan   = data.mealPlan || [];
+    const [planData, recipeData] = await Promise.all([
+      apiCall("getMealPlan"),
+      apiCall("getRecipes"),
+    ]);
+    mealPlan = planData.mealPlan || [];
+    recipes  = recipeData.recipes || [];
     renderPlan();
     hideStatus();
   } catch (err) {
@@ -432,14 +435,15 @@ async function loadPlan() {
   }
 }
 
+// ── Plan komplett neu generieren ───────────────────────────────
 async function generatePlan() {
   const btn = document.getElementById("btn-generate");
   btn.disabled = true;
-  showStatus("Erstelle neuen Plan mit KI...");
-
+  showStatus("Erstelle neuen Plan...");
   try {
-    await apiCall("generatePlan");
-    showStatus("Lade Plan...");
+    // Gelockte Tage mitschicken damit GAS sie überspringt
+    const lockedIds = [...lockedDays].map(i => mealPlan[i]?.recipeId).filter(Boolean);
+    await apiCall("generatePlan", { lockedIndices: [...lockedDays].join(",") });
     const data = await apiCall("getMealPlan");
     mealPlan   = data.mealPlan || [];
     renderPlan();
@@ -452,78 +456,68 @@ async function generatePlan() {
   }
 }
 
+// ── Plan bestätigen ────────────────────────────────────────────
 async function confirmPlan() {
-  const btn = document.getElementById("btn-confirm");
-  btn.disabled = true;
   showStatus("Erstelle Einkaufsliste...");
-
   try {
     await apiCall("confirmPlan");
-    const data     = await apiCall("getShoppingList");
-    shoppingItems  = data.items || [];
+    const data    = await apiCall("getShoppingList");
+    shoppingItems = data.items || [];
     renderShopping();
     showSuccess("Einkaufsliste erstellt ✓");
-    // Zum Einkaufs-Tab wechseln
-    const shoppingTab = document.querySelector('[data-panel="shopping"]');
-    switchTab(shoppingTab);
+    switchTab(document.querySelector('[data-panel="shopping"]'));
   } catch (err) {
     showError("Fehler beim Erstellen der Einkaufsliste.");
     console.error(err);
-  } finally {
-    btn.disabled = false;
   }
 }
 
+// ── Plan rendern ───────────────────────────────────────────────
 function renderPlan() {
   const container = document.getElementById("plan-list");
   container.innerHTML = "";
 
   if (!mealPlan.length) {
-    container.innerHTML = `
-      <div class="empty">
-        <span class="empty-icon">🍽️</span>
-        Noch kein Plan vorhanden.<br>Tippe auf „Neuer Plan" um zu starten.
-      </div>`;
+    container.innerHTML = `<div class="empty"><span class="empty-icon">🍽️</span>Noch kein Plan vorhanden.<br>Tippe auf „Neuer Plan" um zu starten.</div>`;
     return;
   }
 
-  const DAYS = ["So","Mo","Di","Mi","Do","Fr","Sa"];
-
   mealPlan.forEach((day, idx) => {
-    // Wochentrennlinie
-    if (idx === 0 || idx === 7) {
-      const wl = document.createElement("div");
-      wl.className   = "week-label";
-      wl.textContent = idx === 0 ? "Woche 1" : "Woche 2";
-      container.appendChild(wl);
-    }
-
-    const date     = new Date(day.date);
-    const dateStr  = `${String(date.getDate()).padStart(2,"0")}.${String(date.getMonth()+1).padStart(2,"0")}`;
-    const dayName  = DAYS[day.dayOfWeek];
+    const date    = new Date(day.date);
+    const dow     = day.dayOfWeek;
+    const dateStr = `${String(date.getDate()).padStart(2,"0")}.${String(date.getMonth()+1).padStart(2,"0")}`;
+    const isWE    = dow === 0 || dow === 6;
+    const isLocked = lockedDays.has(idx);
 
     // Badge
     let badgeHtml = "";
-    if (day.dayOfWeek === 0)    badgeHtml = `<span class="badge badge-sunday">Fleisch</span>`;
-    else if (day.isMealPrep)    badgeHtml = `<span class="badge badge-prep">Meal Prep</span>`;
-    else if (day.isReste)       badgeHtml = `<span class="badge badge-reste">Reste</span>`;
-    else if (day.dayOfWeek >= 5) badgeHtml = `<span class="badge badge-weekend">Wochenende</span>`;
+    if (dow === 0)       badgeHtml = `<span class="badge badge-sunday">Fleisch</span>`;
+    else if (day.isMealPrep) badgeHtml = `<span class="badge badge-prep">Meal Prep</span>`;
+    else if (day.isReste)    badgeHtml = `<span class="badge badge-reste">Reste</span>`;
+    if (isLocked)            badgeHtml += `<span class="badge badge-locked">🔒 Fixiert</span>`;
 
-    // Kategorie-Pill
-    const tag      = (day.recipeTags || []).find(t =>
-      ["nudeln","reis","kartoffeln","fleisch"].includes(t.toLowerCase())
-    );
+    // Kategorie
+    const tag      = (day.recipeTags || []).find(t => ["nudeln","reis","kartoffeln","fleisch"].includes(t.toLowerCase()));
     const catClass = tag ? `cat-${tag.toLowerCase()}` : "cat-default";
     const catHtml  = tag ? `<span class="cat-pill ${catClass}">${tag}</span>` : "";
 
     const card = document.createElement("div");
-    card.className  = "day-card";
+    card.className   = `day-card${isWE ? " weekend" : ""}${isLocked ? " locked" : ""}`;
     card.dataset.idx = idx;
 
     card.innerHTML = `
       <div class="day-header">
-        <span class="day-name">${dayName} ${dateStr}</span>
+        <span class="day-name">${DAYS_SHORT[dow]} ${dateStr}</span>
         ${badgeHtml}
+        <div class="day-header-actions">
+          <button class="icon-btn${isLocked ? " locked" : ""}"
+            onclick="toggleLock(${idx})" title="${isLocked ? "Entsperren" : "Tag fixieren"}">
+            ${isLocked ? "🔒" : "🔓"}
+          </button>
+          <button class="icon-btn" onclick="openDaySheet(${idx})" title="Tag neu generieren">
+            ↺
+          </button>
+        </div>
       </div>
       <div class="meal-row">
         <span class="drag-handle">⠿</span>
@@ -543,22 +537,153 @@ function renderPlan() {
   });
 
   // Drag & Drop
-  new Sortable(container, {
-    animation:   150,
+  if (window._sortable) window._sortable.destroy();
+  window._sortable = new Sortable(container, {
+    animation:   180,
     handle:      ".drag-handle",
     ghostClass:  "sortable-ghost",
     chosenClass: "sortable-chosen",
-    filter:      ".week-label",
     onEnd(evt) {
-      const moved = mealPlan.splice(evt.oldDraggableIndex, 1)[0];
-      mealPlan.splice(evt.newDraggableIndex, 0, moved);
+      const oldIdx = evt.oldIndex;
+      const newIdx = evt.newIndex;
+      if (oldIdx === newIdx) return;
+
+      // State aktualisieren
+      const moved = mealPlan.splice(oldIdx, 1)[0];
+      mealPlan.splice(newIdx, 0, moved);
+
+      // Locked-Indizes anpassen
+      const newLocked = new Set();
+      lockedDays.forEach(i => {
+        if (i === oldIdx) {
+          newLocked.add(newIdx);
+        } else {
+          // Index verschieben falls nötig
+          let adjusted = i;
+          if (oldIdx < newIdx) {
+            if (i > oldIdx && i <= newIdx) adjusted--;
+          } else {
+            if (i >= newIdx && i < oldIdx) adjusted++;
+          }
+          newLocked.add(adjusted);
+        }
+      });
+      lockedDays = newLocked;
+
+      // Plan ins Sheet zurückschreiben
+      savePlanOrder();
     },
   });
 }
 
+// ── Drag & Drop: Reihenfolge zurückschreiben ───────────────────
+async function savePlanOrder() {
+  showStatus("Speichere Reihenfolge...");
+  try {
+    const order = mealPlan.map(day => ({
+      recipeId:  day.recipeId,
+      portions:  day.portions,
+      note:      day.note || "",
+      isReste:   day.isReste || false,
+    }));
+    await apiCall("updateMealOrder", { order: JSON.stringify(order) });
+    showSuccess("Reihenfolge gespeichert ✓");
+  } catch (err) {
+    showError("Reihenfolge konnte nicht gespeichert werden.");
+    console.error(err);
+  }
+}
+
+// ── Lock / Unlock ──────────────────────────────────────────────
+function toggleLock(idx) {
+  if (lockedDays.has(idx)) {
+    lockedDays.delete(idx);
+  } else {
+    lockedDays.add(idx);
+  }
+  // Nur Karte neu rendern statt kompletten Plan
+  renderPlan();
+}
+
+// ── Stepper ────────────────────────────────────────────────────
 function changePax(idx, delta) {
   mealPlan[idx].portions = Math.max(1, Math.min(6, mealPlan[idx].portions + delta));
   document.getElementById(`pax-${idx}`).textContent = mealPlan[idx].portions;
+}
+
+// ── Bottom Sheet: Tag-Optionen ─────────────────────────────────
+function openDaySheet(idx) {
+  activeSheetIdx = idx;
+  const day   = mealPlan[idx];
+  const dow   = day.dayOfWeek;
+  const date  = new Date(day.date);
+  const label = `${DAYS_FULL[dow]}, ${String(date.getDate()).padStart(2,"0")}.${String(date.getMonth()+1).padStart(2,"0")}`;
+
+  document.getElementById("sheet-title").textContent = label;
+
+  const btns = document.getElementById("sheet-buttons");
+  btns.innerHTML = "";
+
+  if (day.isReste) {
+    // Reste-Tag: zwei Optionen
+    document.getElementById("sheet-subtitle").textContent =
+      "Das ist ein Reste-Tag. Was soll neu generiert werden?";
+
+    btns.innerHTML = `
+      <button class="sheet-btn primary" onclick="regenerateDay(${idx}, 'with-prev')">
+        Vortag + Reste-Tag neu generieren
+        <div class="sub">Beide Tage bekommen neue Gerichte</div>
+      </button>
+      <button class="sheet-btn" onclick="regenerateDay(${idx}, 'standalone')">
+        Nur diesen Tag – eigenständig
+        <div class="sub">Aus dem Reste-Tag wird ein normaler Kochtag</div>
+      </button>
+      <button class="sheet-btn cancel" onclick="closeSheet()">Abbrechen</button>`;
+  } else {
+    document.getElementById("sheet-subtitle").textContent =
+      "Diesen Tag mit einem neuen Gericht belegen?";
+
+    btns.innerHTML = `
+      <button class="sheet-btn primary" onclick="regenerateDay(${idx}, 'single')">
+        Tag neu generieren
+        <div class="sub">KI wählt ein passendes Gericht</div>
+      </button>
+      <button class="sheet-btn cancel" onclick="closeSheet()">Abbrechen</button>`;
+  }
+
+  document.getElementById("day-sheet").classList.add("open");
+}
+
+function closeSheet(event) {
+  if (event && event.target !== document.getElementById("day-sheet")) return;
+  document.getElementById("day-sheet").classList.remove("open");
+  activeSheetIdx = null;
+}
+
+// ── Einzelnen Tag neu generieren ───────────────────────────────
+async function regenerateDay(idx, mode) {
+  document.getElementById("day-sheet").classList.remove("open");
+  showStatus("Generiere Gericht...");
+
+  try {
+    const data = await apiCall("regenerateSingleDay", {
+      index: idx,
+      mode,  // "single" | "standalone" | "with-prev"
+    });
+
+    // Lokal aktualisieren
+    if (data.updatedDays) {
+      data.updatedDays.forEach(({ index, day }) => {
+        mealPlan[index] = { ...mealPlan[index], ...day };
+      });
+    }
+
+    renderPlan();
+    showSuccess("Gericht aktualisiert ✓");
+  } catch (err) {
+    showError("Konnte Gericht nicht ändern.");
+    console.error(err);
+  }
 }
 
 // ── Shopping ───────────────────────────────────────────────────
@@ -571,55 +696,40 @@ async function loadShoppingList() {
     hideStatus();
   } catch (err) {
     showError("Einkaufsliste konnte nicht geladen werden.");
-    console.error(err);
   }
 }
 
 async function toggleItem(index) {
   shoppingItems[index].done = !shoppingItems[index].done;
   renderShopping();
-
   try {
     await apiCall("toggleShoppingItem", { index });
   } catch (err) {
-    // Rollback bei Fehler
     shoppingItems[index].done = !shoppingItems[index].done;
     renderShopping();
     showError("Konnte nicht gespeichert werden.");
-    console.error(err);
   }
 }
 
 function renderShopping() {
   const container = document.getElementById("shopping-list");
   container.innerHTML = "";
-
   if (!shoppingItems.length) {
-    container.innerHTML = `
-      <div class="empty">
-        <span class="empty-icon">🛒</span>
-        Keine Einkaufsliste vorhanden.<br>Bestätige zuerst den Essensplan.
-      </div>`;
+    container.innerHTML = `<div class="empty"><span class="empty-icon">🛒</span>Keine Einkaufsliste vorhanden.<br>Erstelle zuerst eine Liste im Plan-Tab.</div>`;
     return;
   }
-
   const byCat = new Map();
   shoppingItems.forEach(item => {
     if (!byCat.has(item.category)) byCat.set(item.category, []);
     byCat.get(item.category).push(item);
   });
-
   byCat.forEach((items, cat) => {
-    const header = document.createElement("div");
-    header.className   = "cat-header";
-    header.textContent = cat;
-    container.appendChild(header);
-
+    const h = document.createElement("div");
+    h.className = "cat-header"; h.textContent = cat;
+    container.appendChild(h);
     items.forEach(item => {
       const amount = item.amount !== null && item.amount !== undefined
-        ? `${Math.round(item.amount * 10) / 10}${item.unit ? " " + item.unit : ""}`
-        : "";
-
+        ? `${Math.round(item.amount * 10) / 10}${item.unit ? " " + item.unit : ""}` : "";
       const el = document.createElement("div");
       el.className = `shop-item ${item.done ? "done" : ""}`;
       el.innerHTML = `
@@ -643,39 +753,27 @@ async function loadPantry() {
     hideStatus();
   } catch (err) {
     showError("Vorräte konnten nicht geladen werden.");
-    console.error(err);
   }
 }
 
 function renderPantry() {
   const container = document.getElementById("pantry-list");
   container.innerHTML = "";
-
   if (!pantryItems.length) {
-    container.innerHTML = `
-      <div class="empty">
-        <span class="empty-icon">📦</span>
-        Noch keine Grundvorräte eingetragen.
-      </div>`;
+    container.innerHTML = `<div class="empty"><span class="empty-icon">📦</span>Noch keine Grundvorräte eingetragen.</div>`;
     return;
   }
-
   pantryItems.forEach(item => {
     const nextDate = item.nextPurchaseDate
       ? new Date(item.nextPurchaseDate).toLocaleDateString("de-DE", { day:"2-digit", month:"2-digit" })
       : "—";
-
     const pillClass = item.isDueSoon
       ? (new Date(item.nextPurchaseDate) < new Date() ? "pill-needed" : "pill-soon")
       : "pill-ok";
-    const pillLabel = pillClass === "pill-needed" ? "Kaufen!"
-                    : pillClass === "pill-soon"   ? "Bald fällig"
-                    : "OK";
-
+    const pillLabel = pillClass === "pill-needed" ? "Kaufen!" : pillClass === "pill-soon" ? "Bald" : "OK";
     const el = document.createElement("div");
     el.className = "pantry-item";
     el.innerHTML = `
-      <span class="pantry-emoji">📦</span>
       <div class="pantry-info">
         <div class="pantry-name">${item.productName}</div>
         <div class="pantry-sub">Fällig: ${nextDate} · alle ${item.intervalDays} Tage</div>
@@ -694,8 +792,6 @@ function switchTab(el) {
   el.classList.add("active");
   const panel = el.dataset.panel;
   document.getElementById(`panel-${panel}`).classList.add("active");
-
-  // Lazy load beim ersten Öffnen
   if (!loaded[panel]) {
     loaded[panel] = true;
     if (panel === "plan")     loadPlan();
