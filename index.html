@@ -698,6 +698,10 @@ function switchTab(el) {
   }
 }
 
+const INIT_DATA = tg?.initData || "";
+// TEMPORÄR:
+if (tg) setTimeout(() => alert("initData leer: " + (INIT_DATA === "")), 1500);
+
 // ── Init ───────────────────────────────────────────────────────
 loaded.plan = true;
 loadPlan();
