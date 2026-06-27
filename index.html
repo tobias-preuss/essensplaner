@@ -362,6 +362,8 @@ if (tg) {
 
 const API_URL    = "https://script.google.com/macros/s/AKfycby7ctVegsR8rC8CZMWS5iEOvEMORyVFvnPJOQXp1BdreB4tgn4TPRLyqqDYE87PqdqjZg/exec";
 const INIT_DATA  = tg?.initData || "";
+// TEMPORÄR:
+if (tg) setTimeout(() => alert("initData leer: " + (INIT_DATA === "")), 1500);
 
 // ── State ──────────────────────────────────────────────────────
 let mealPlan      = [];
@@ -697,10 +699,6 @@ function switchTab(el) {
     if (panel === "pantry")   loadPantry();
   }
 }
-
-const INIT_DATA = tg?.initData || "";
-// TEMPORÄR:
-if (tg) setTimeout(() => alert("initData leer: " + (INIT_DATA === "")), 1500);
 
 // ── Init ───────────────────────────────────────────────────────
 loaded.plan = true;
