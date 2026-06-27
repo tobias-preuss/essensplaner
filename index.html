@@ -7,216 +7,222 @@
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
 <style>
+  /* ── Tokens ────────────────────────────────────────────── */
   :root {
-    --bg: #f2f2f7;
-    --surface: #ffffff;
-    --border: rgba(0,0,0,0.08);
-    --text: #1c1c1e;
-    --text-muted: #8e8e93;
-    --accent: #2AABEE;
-    --accent-bg: #e8f4fd;
-    --radius: 14px;
-    --radius-sm: 10px;
+    --bg:          #F7F7F5;
+    --surface:     #FFFFFF;
+    --surface-2:   #F0EFED;
+    --border:      rgba(0,0,0,0.07);
+    --text:        #1A1A18;
+    --text-muted:  #7A7A74;
+    --accent:      #3D7F4F;
+    --accent-bg:   #EAF3EC;
+    --accent-text: #2A5C37;
+    --warn:        #C0541A;
+    --warn-bg:     #FDF0E8;
+    --rest-bg:     #F0EDF8;
+    --rest-text:   #5B3F8A;
+    --radius:      14px;
+    --radius-sm:   9px;
+    --tab-h:       56px;
+    --status-h:    44px;
   }
 
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #1c1c1e;
-      --surface: #2c2c2e;
-      --border: rgba(255,255,255,0.1);
-      --text: #f2f2f7;
-      --text-muted: #8e8e93;
-      --accent-bg: #1a3a4a;
-    }
-  }
-
-  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-
+  /* ── Reset ─────────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body {
-    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
     background: var(--bg);
     color: var(--text);
     max-width: 430px;
     margin: 0 auto;
     min-height: 100vh;
-    overscroll-behavior: none;
+    -webkit-tap-highlight-color: transparent;
   }
 
-  /* ─── Tab Bar ─── */
+  /* ── Tab Bar ────────────────────────────────────────────── */
   .tabs {
     display: flex;
+    height: var(--tab-h);
     background: var(--surface);
-    border-bottom: 0.5px solid var(--border);
+    border-bottom: 1px solid var(--border);
     position: sticky;
     top: 0;
     z-index: 100;
   }
-
   .tab {
     flex: 1;
-    padding: 10px 4px 8px;
-    text-align: center;
-    font-size: 11px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    font-size: 10px;
     font-weight: 500;
     color: var(--text-muted);
     cursor: pointer;
     border-bottom: 2px solid transparent;
-    transition: all 0.18s;
+    letter-spacing: 0.3px;
+    transition: color 0.15s, border-color 0.15s;
     user-select: none;
-    letter-spacing: 0.2px;
   }
-
-  .tab .tab-icon { font-size: 20px; display: block; margin-bottom: 2px; }
+  .tab .icon { font-size: 20px; line-height: 1; }
   .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 
-  /* ─── Panels ─── */
-  .panel { display: none; padding: 12px; padding-bottom: 80px; }
-  .panel.active { display: block; }
-
-  /* ─── AI Banner ─── */
-  .ai-banner {
-    background: var(--accent-bg);
-    border-radius: var(--radius);
-    padding: 14px 16px;
-    margin-bottom: 12px;
+  /* ── Status Bar ─────────────────────────────────────────── */
+  .status-bar {
+    height: 0;
+    overflow: hidden;
     display: flex;
     align-items: center;
-    gap: 12px;
-    border: 0.5px solid rgba(42,171,238,0.2);
+    justify-content: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    transition: height 0.2s ease, opacity 0.2s ease;
+    opacity: 0;
   }
+  .status-bar.visible {
+    height: var(--status-h);
+    opacity: 1;
+  }
+  .status-bar.loading { background: var(--accent-bg); color: var(--accent-text); }
+  .status-bar.success { background: var(--accent-bg); color: var(--accent-text); }
+  .status-bar.error   { background: var(--warn-bg);   color: var(--warn); }
 
-  .ai-banner-text { flex: 1; }
-  .ai-banner-text strong { font-size: 14px; display: block; color: var(--text); }
-  .ai-banner-text span { font-size: 12px; color: var(--text-muted); }
+  .spinner {
+    width: 14px; height: 14px;
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+    flex-shrink: 0;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
 
-  .btn-ai {
-    background: var(--accent);
-    color: white;
+  /* ── Panel ──────────────────────────────────────────────── */
+  .panel { display: none; padding: 12px 12px 80px; }
+  .panel.active { display: block; }
+
+  /* ── Action Row ─────────────────────────────────────────── */
+  .action-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+  .btn {
+    flex: 1;
+    height: 40px;
     border: none;
     border-radius: var(--radius-sm);
-    padding: 9px 14px;
     font-size: 13px;
     font-weight: 600;
     cursor: pointer;
-    white-space: nowrap;
     transition: opacity 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
   }
+  .btn:active { opacity: 0.75; }
+  .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .btn-primary   { background: var(--accent); color: #fff; }
+  .btn-secondary { background: var(--surface-2); color: var(--text); }
 
-  .btn-ai:active { opacity: 0.8; }
-
-  /* ─── Week separator ─── */
+  /* ── Week Label ─────────────────────────────────────────── */
   .week-label {
     font-size: 11px;
     font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.6px;
+    letter-spacing: 0.8px;
     color: var(--text-muted);
-    padding: 12px 2px 6px;
+    padding: 14px 2px 6px;
   }
 
-  /* ─── Day Card ─── */
+  /* ── Day Card ───────────────────────────────────────────── */
   .day-card {
     background: var(--surface);
     border-radius: var(--radius);
-    border: 0.5px solid var(--border);
-    margin-bottom: 8px;
+    border: 1px solid var(--border);
+    margin-bottom: 7px;
     overflow: hidden;
-    transition: box-shadow 0.2s;
   }
-
-  .day-card.sortable-chosen { box-shadow: 0 8px 28px rgba(0,0,0,0.18); }
-  .day-card.sortable-ghost { opacity: 0.35; }
+  .day-card.sortable-chosen { box-shadow: 0 6px 24px rgba(0,0,0,0.12); }
+  .day-card.sortable-ghost  { opacity: 0.3; }
 
   .day-header {
     display: flex;
     align-items: center;
-    padding: 8px 14px;
-    gap: 8px;
-    border-bottom: 0.5px solid var(--border);
+    padding: 8px 13px;
+    border-bottom: 1px solid var(--border);
+    gap: 7px;
   }
+  .day-name  { font-size: 12px; font-weight: 600; color: var(--text-muted); min-width: 50px; }
 
-  .day-name {
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--text-muted);
-    min-width: 52px;
-  }
-
-  .day-badge {
+  .badge {
     font-size: 10px;
     font-weight: 600;
-    padding: 2px 9px;
+    padding: 2px 8px;
     border-radius: 20px;
     letter-spacing: 0.2px;
   }
-
-  .badge-prep     { background: #e3f2fd; color: #1565c0; }
-  .badge-reste    { background: #ede7f6; color: #4527a0; }
-  .badge-sunday   { background: #fce4ec; color: #880e4f; }
-  .badge-weekend  { background: #e8f5e9; color: #2e7d32; }
+  .badge-sunday  { background: #FDECEA; color: #B03A2E; }
+  .badge-prep    { background: #E8F4FD; color: #1A6B9A; }
+  .badge-reste   { background: var(--rest-bg); color: var(--rest-text); }
+  .badge-weekend { background: var(--accent-bg); color: var(--accent-text); }
 
   .meal-row {
     display: flex;
     align-items: center;
-    padding: 11px 14px;
-    gap: 10px;
+    padding: 10px 13px;
+    gap: 9px;
   }
-
   .drag-handle {
     color: var(--text-muted);
-    opacity: 0.35;
-    font-size: 18px;
+    opacity: 0.3;
+    font-size: 17px;
     cursor: grab;
     flex-shrink: 0;
     touch-action: none;
+    line-height: 1;
   }
-
-  .meal-info { flex: 1; min-width: 0; }
-  .meal-name { font-size: 15px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .meal-sub  { font-size: 12px; color: var(--text-muted); margin-top: 1px; }
+  .meal-info    { flex: 1; min-width: 0; }
+  .meal-name    { font-size: 15px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .meal-sub     { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
 
   .cat-pill {
     font-size: 10px;
     font-weight: 600;
-    padding: 3px 9px;
+    padding: 3px 8px;
     border-radius: 20px;
     flex-shrink: 0;
+    text-transform: capitalize;
   }
+  .cat-nudeln     { background: #FDECEA; color: #8B2618; }
+  .cat-reis       { background: #FEF5E4; color: #7D5108; }
+  .cat-kartoffeln { background: var(--accent-bg); color: var(--accent-text); }
+  .cat-fleisch    { background: #FDECEA; color: #922B21; }
+  .cat-default    { background: var(--surface-2); color: var(--text-muted); }
 
-  .cat-reis       { background: #fff3e0; color: #bf360c; }
-  .cat-nudeln     { background: #fce4ec; color: #880e4f; }
-  .cat-kartoffeln { background: #e8f5e9; color: #1b5e20; }
-  .cat-fleisch    { background: #fbe9e7; color: #bf360c; }
-
-  /* ─── Person Stepper ─── */
-  .stepper {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    flex-shrink: 0;
-  }
-
+  /* ── Stepper ─────────────────────────────────────────────── */
+  .stepper { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
   .stepper-btn {
-    width: 26px;
-    height: 26px;
+    width: 26px; height: 26px;
     border-radius: 50%;
-    border: 0.5px solid var(--border);
-    background: var(--bg);
+    border: 1px solid var(--border);
+    background: var(--surface-2);
     color: var(--text);
     font-size: 17px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    display: flex; align-items: center; justify-content: center;
     cursor: pointer;
+    transition: background 0.12s;
     line-height: 1;
     flex-shrink: 0;
-    transition: background 0.15s;
   }
-
   .stepper-btn:active { background: var(--border); }
   .stepper-val { font-size: 14px; font-weight: 600; min-width: 14px; text-align: center; }
 
-  /* ─── Shopping List ─── */
+  /* ── Shopping List ───────────────────────────────────────── */
   .cat-header {
     font-size: 11px;
     font-weight: 700;
@@ -225,471 +231,476 @@
     color: var(--text-muted);
     padding: 14px 2px 6px;
   }
-
   .shop-item {
     display: flex;
     align-items: center;
     background: var(--surface);
     border-radius: var(--radius-sm);
-    border: 0.5px solid var(--border);
-    padding: 11px 14px;
+    border: 1px solid var(--border);
+    padding: 11px 13px;
     margin-bottom: 6px;
-    gap: 12px;
+    gap: 11px;
     transition: opacity 0.2s;
   }
-
   .shop-item.done { opacity: 0.38; }
   .shop-item.done .item-name { text-decoration: line-through; }
 
-  .check-circle {
-    width: 24px;
-    height: 24px;
+  .check {
+    width: 24px; height: 24px;
     border-radius: 50%;
     border: 1.5px solid var(--border);
     flex-shrink: 0;
     cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    display: flex; align-items: center; justify-content: center;
     font-size: 13px;
-    transition: all 0.15s;
     color: white;
+    transition: background 0.15s, border-color 0.15s;
   }
-
-  .check-circle.on { background: #4CAF50; border-color: #4CAF50; }
+  .check.on { background: var(--accent); border-color: var(--accent); }
 
   .item-name   { flex: 1; font-size: 15px; }
   .item-amount { font-size: 13px; color: var(--text-muted); font-weight: 500; white-space: nowrap; }
 
-  /* ─── Offer Badge ─── */
-  .offer-badge {
-    font-size: 10px;
-    background: #e8f5e9;
-    color: #2e7d32;
-    border-radius: 6px;
-    padding: 2px 7px;
-    font-weight: 700;
-    flex-shrink: 0;
-  }
-
-  /* ─── Pantry ─── */
+  /* ── Pantry ──────────────────────────────────────────────── */
   .pantry-item {
     display: flex;
     align-items: center;
     background: var(--surface);
     border-radius: var(--radius-sm);
-    border: 0.5px solid var(--border);
-    padding: 12px 14px;
+    border: 1px solid var(--border);
+    padding: 12px 13px;
     margin-bottom: 6px;
-    gap: 12px;
+    gap: 11px;
   }
+  .pantry-emoji  { font-size: 22px; flex-shrink: 0; }
+  .pantry-info   { flex: 1; }
+  .pantry-name   { font-size: 15px; font-weight: 500; }
+  .pantry-sub    { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
 
-  .pantry-emoji { font-size: 22px; flex-shrink: 0; }
-  .pantry-info  { flex: 1; }
-  .pantry-name  { font-size: 15px; font-weight: 500; }
-  .pantry-sub   { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
-
-  .status-badge {
+  .status-pill {
     font-size: 11px;
     font-weight: 600;
     padding: 3px 10px;
     border-radius: 20px;
     flex-shrink: 0;
-  }
-
-  .status-ok     { background: #e8f5e9; color: #2e7d32; }
-  .status-soon   { background: #fff3e0; color: #e65100; }
-  .status-needed { background: #fce4ec; color: #c62828; }
-
-  /* ─── Loading Spinner ─── */
-  .spinner {
-    display: inline-block;
-    width: 16px;
-    height: 16px;
-    border: 2px solid rgba(255,255,255,0.4);
-    border-top-color: white;
-    border-radius: 50%;
-    animation: spin 0.7s linear infinite;
-    vertical-align: middle;
-    margin-right: 4px;
-  }
-
-  @keyframes spin { to { transform: rotate(360deg); } }
-
-  /* ─── Toast ─── */
-  .toast {
-    position: fixed;
-    bottom: 24px;
-    left: 50%;
-    transform: translateX(-50%) translateY(60px);
-    background: #1c1c1e;
-    color: white;
-    padding: 10px 20px;
-    border-radius: 24px;
-    font-size: 13px;
-    font-weight: 500;
-    z-index: 999;
-    transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1);
     white-space: nowrap;
   }
+  .pill-ok     { background: var(--accent-bg);  color: var(--accent-text); }
+  .pill-soon   { background: var(--warn-bg);    color: var(--warn); }
+  .pill-needed { background: #FDECEA;            color: #8B2618; }
 
-  .toast.show { transform: translateX(-50%) translateY(0); }
+  /* ── Empty State ─────────────────────────────────────────── */
+  .empty {
+    text-align: center;
+    padding: 48px 24px;
+    color: var(--text-muted);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  .empty .empty-icon { font-size: 36px; margin-bottom: 12px; display: block; }
 </style>
 </head>
 <body>
 
-<div class="tabs">
+<!-- Tab Bar -->
+<nav class="tabs">
   <div class="tab active" data-panel="plan" onclick="switchTab(this)">
-    <span class="tab-icon">📅</span>Plan
+    <span class="icon">📅</span>Plan
   </div>
   <div class="tab" data-panel="shopping" onclick="switchTab(this)">
-    <span class="tab-icon">🛒</span>Einkauf
+    <span class="icon">🛒</span>Einkauf
   </div>
   <div class="tab" data-panel="pantry" onclick="switchTab(this)">
-    <span class="tab-icon">📦</span>Vorräte
+    <span class="icon">📦</span>Vorräte
   </div>
+</nav>
+
+<!-- Status Bar -->
+<div class="status-bar" id="status-bar">
+  <span class="spinner" id="status-spinner" style="display:none"></span>
+  <span id="status-text"></span>
 </div>
 
-<!-- ═══════════════ PLAN ═══════════════ -->
+<!-- ═══════════ PLAN ═══════════ -->
 <div id="panel-plan" class="panel active">
-  <div class="ai-banner">
-    <div class="ai-banner-text">
-      <strong>✨ KI-Planung</strong>
-      <span>2 Wochen automatisch generieren</span>
-    </div>
-    <button class="btn-ai" id="btn-generate" onclick="generatePlan()">Erstellen</button>
+  <div class="action-row">
+    <button class="btn btn-primary" onclick="generatePlan()" id="btn-generate">
+      ✨ Neuer Plan
+    </button>
+    <button class="btn btn-secondary" onclick="confirmPlan()" id="btn-confirm">
+      ✅ Bestätigen
+    </button>
   </div>
-  <div id="meal-plan-list"></div>
+  <div id="plan-list"></div>
 </div>
 
-<!-- ═══════════════ SHOPPING ═══════════════ -->
+<!-- ═══════════ SHOPPING ═══════════ -->
 <div id="panel-shopping" class="panel">
-  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-    <span style="font-size:18px;font-weight:700">Einkaufsliste</span>
-    <button class="btn-ai" style="font-size:12px;padding:7px 12px" onclick="generateShopping()">⟳ Neu erstellen</button>
+  <div class="action-row">
+    <button class="btn btn-secondary" onclick="loadShoppingList()" style="flex:0 0 40px; padding:0;">
+      ↺
+    </button>
+    <button class="btn btn-primary" onclick="confirmPlan()" style="flex:1">
+      ✅ Liste neu erstellen
+    </button>
   </div>
   <div id="shopping-list"></div>
 </div>
 
-<!-- ═══════════════ PANTRY ═══════════════ -->
+<!-- ═══════════ PANTRY ═══════════ -->
 <div id="panel-pantry" class="panel">
-  <span style="font-size:18px;font-weight:700;display:block;margin-bottom:12px">Grundvorräte</span>
   <div id="pantry-list"></div>
 </div>
 
-<div class="toast" id="toast"></div>
-
 <script>
-// ── Telegram WebApp init ──────────────────────────────────────────────────
+// ── Telegram WebApp ────────────────────────────────────────────
 const tg = window.Telegram?.WebApp;
 if (tg) {
   tg.ready();
   tg.expand();
-  // Apply Telegram's theme colors if available
-  if (tg.themeParams?.bg_color) {
-    document.documentElement.style.setProperty('--bg', tg.themeParams.bg_color);
-    document.documentElement.style.setProperty('--surface', tg.themeParams.secondary_bg_color || '#fff');
-    document.documentElement.style.setProperty('--text', tg.themeParams.text_color || '#1c1c1e');
-    document.documentElement.style.setProperty('--text-muted', tg.themeParams.hint_color || '#8e8e93');
-    document.documentElement.style.setProperty('--accent', tg.themeParams.button_color || '#2AABEE');
-  }
 }
 
-// ── Data ─────────────────────────────────────────────────────────────────
-const RECIPES = [
-  { id:1,  name:"Pasta Bolognese",          cat:"nudeln",      aufwand:"mittel",    tags:["meal-prep","fleisch"] },
-  { id:2,  name:"Hähnchen mit Reis",         cat:"reis",        aufwand:"einfach",   tags:["meal-prep"] },
-  { id:3,  name:"Kartoffelgratin",           cat:"kartoffeln",  aufwand:"aufwendig", tags:["weekend"] },
-  { id:4,  name:"Risotto ai funghi",         cat:"reis",        aufwand:"mittel",    tags:["weekend"] },
-  { id:5,  name:"Spaghetti Aglio e Olio",   cat:"nudeln",      aufwand:"einfach",   tags:[] },
-  { id:6,  name:"Bratkartoffeln mit Ei",    cat:"kartoffeln",  aufwand:"einfach",   tags:[] },
-  { id:7,  name:"Schweinebraten",           cat:"fleisch",     aufwand:"aufwendig", tags:["sunday"] },
-  { id:8,  name:"Chicken Curry",             cat:"reis",        aufwand:"mittel",    tags:["meal-prep"] },
-  { id:9,  name:"Gnocchi Tomatensauce",     cat:"kartoffeln",  aufwand:"einfach",   tags:["meal-prep"] },
-  { id:10, name:"Rindergulasch",            cat:"fleisch",     aufwand:"aufwendig", tags:["sunday"] },
-  { id:11, name:"Nudeln mit Sahnesauce",    cat:"nudeln",      aufwand:"einfach",   tags:["meal-prep"] },
-  { id:12, name:"Fried Rice",               cat:"reis",        aufwand:"einfach",   tags:["meal-prep"] },
-];
+const API_URL    = "https://script.google.com/macros/s/AKfycby7ctVegsR8rC8CZMWS5iEOvEMORyVFvnPJOQXp1BdreB4tgn4TPRLyqqDYE87PqdqjZg/exec";
+const INIT_DATA  = tg?.initData || "";
 
-const PANTRY_DATA = [
-  { name:"Reis",          emoji:"🌾", interval:"30 Tage",  daysLeft:20 },
-  { name:"Nudeln",        emoji:"🍝", interval:"14 Tage",  daysLeft:5  },
-  { name:"Olivenöl",      emoji:"🫙", interval:"60 Tage",  daysLeft:45 },
-  { name:"Zwiebeln",      emoji:"🧅", interval:"7 Tage",   daysLeft:2  },
-  { name:"Knoblauch",     emoji:"🧄", interval:"14 Tage",  daysLeft:8  },
-  { name:"Salz & Pfeffer",emoji:"🧂", interval:"90 Tage",  daysLeft:60 },
-  { name:"Dosentomaten",  emoji:"🥫", interval:"21 Tage",  daysLeft:3  },
-  { name:"Eier",          emoji:"🥚", interval:"7 Tage",   daysLeft:4  },
-];
+// ── State ──────────────────────────────────────────────────────
+let mealPlan      = [];
+let shoppingItems = [];
+let pantryItems   = [];
 
-// ── State ─────────────────────────────────────────────────────────────────
-let mealPlan   = [];
-let shopping   = [];
+// ── API ────────────────────────────────────────────────────────
+async function apiCall(action, extraParams = {}) {
+  const params = new URLSearchParams({
+    action,
+    initData: INIT_DATA,
+    ...extraParams,
+  });
 
-// ── Helpers ───────────────────────────────────────────────────────────────
-function pickRandom(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+  const response = await fetch(`${API_URL}?${params.toString()}`);
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-function badge(cls, label) {
-  return `<span class="day-badge ${cls}">${label}</span>`;
+  const data = await response.json();
+  if (data.error) throw new Error(data.error);
+
+  return data;
 }
 
-function catPill(cat) {
-  const labels = { reis:"Reis", nudeln:"Nudeln", kartoffeln:"Kartoffeln", fleisch:"Fleisch" };
-  return `<span class="cat-pill cat-${cat}">${labels[cat]||cat}</span>`;
+// ── Status Bar ─────────────────────────────────────────────────
+function showStatus(message, type = "loading") {
+  const bar      = document.getElementById("status-bar");
+  const text     = document.getElementById("status-text");
+  const spinner  = document.getElementById("status-spinner");
+
+  bar.className      = `status-bar visible ${type}`;
+  text.textContent   = message;
+  spinner.style.display = type === "loading" ? "block" : "none";
 }
 
-function showToast(msg) {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.classList.add('show');
-  setTimeout(() => t.classList.remove('show'), 2200);
-}
-
-// ── Plan Generation ────────────────────────────────────────────────────────
-function generatePlan() {
-  const btn = document.getElementById('btn-generate');
-  btn.innerHTML = '<span class="spinner"></span>Plane…';
-  btn.disabled = true;
-
+function hideStatus(delay = 0) {
   setTimeout(() => {
-    buildPlan();
-    buildShopping();
-    renderPlan();
-    renderShopping();
-    btn.textContent = '✓ Fertig';
-    btn.disabled = false;
-    setTimeout(() => btn.textContent = 'Erstellen', 2000);
-    showToast('Plan für 2 Wochen erstellt ✓');
-  }, 900); // Simulate API delay
+    document.getElementById("status-bar").className = "status-bar";
+  }, delay);
 }
 
-function buildPlan() {
-  mealPlan = [];
-  const today   = new Date();
-  const dow     = today.getDay(); // 0=So
-  const diff    = (7 - dow) % 7 || 7;
-  const nextSun = new Date(today);
-  nextSun.setDate(today.getDate() + diff);
-  nextSun.setHours(0,0,0,0);
+function showSuccess(message) {
+  showStatus(message, "success");
+  hideStatus(2500);
+}
 
-  const cats    = ["nudeln", "kartoffeln", "reis"];
-  let catIdx    = 0;
+function showError(message) {
+  showStatus(message, "error");
+  hideStatus(3500);
+}
 
-  for (let i = 0; i < 14; i++) {
-    const date  = new Date(nextSun);
-    date.setDate(nextSun.getDate() + i);
-    const d     = date.getDay(); // 0=So
-    let recipe  = null;
-    let isMealPrep = false;
-    let isReste    = false;
-
-    if (d === 0) {
-      // Sonntag → Fleischgericht
-      recipe = pickRandom(RECIPES.filter(r => r.tags.includes("sunday")));
-    } else if (d === 2 || d === 4) {
-      // Di / Do → Reste vom Vortag
-      const prev = mealPlan[mealPlan.length - 2];
-      recipe  = prev?.recipe;
-      isReste = true;
-    } else if (d === 1 || d === 3) {
-      // Mo / Mi → Meal Prep (abwechselnd Reis/Nudeln/Kartoffeln)
-      const cat  = cats[catIdx++ % 3];
-      const pool = RECIPES.filter(r => r.cat === cat && r.tags.includes("meal-prep"));
-      recipe  = pickRandom(pool.length ? pool : RECIPES.filter(r => r.cat === cat));
-      isMealPrep = true;
-    } else {
-      // Fr / Sa → entspannt, aufwendiger
-      const cat  = cats[catIdx++ % 3];
-      const pool = RECIPES.filter(r => r.cat === cat);
-      recipe  = pickRandom(pool.length ? pool : RECIPES);
-    }
-
-    mealPlan.push({ date, dow:d, recipe: recipe || RECIPES[i % RECIPES.length], persons:2, isMealPrep, isReste });
+// ── Plan ───────────────────────────────────────────────────────
+async function loadPlan() {
+  showStatus("Lade Essensplan...");
+  try {
+    const data = await apiCall("getMealPlan");
+    mealPlan   = data.mealPlan || [];
+    renderPlan();
+    hideStatus();
+  } catch (err) {
+    showError("Plan konnte nicht geladen werden.");
+    console.error(err);
   }
 }
 
-// ── Render Plan ────────────────────────────────────────────────────────────
+async function generatePlan() {
+  const btn = document.getElementById("btn-generate");
+  btn.disabled = true;
+  showStatus("Erstelle neuen Plan mit KI...");
+
+  try {
+    await apiCall("generatePlan");
+    showStatus("Lade Plan...");
+    const data = await apiCall("getMealPlan");
+    mealPlan   = data.mealPlan || [];
+    renderPlan();
+    showSuccess("Neuer Plan erstellt ✓");
+  } catch (err) {
+    showError("Plan konnte nicht erstellt werden.");
+    console.error(err);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function confirmPlan() {
+  const btn = document.getElementById("btn-confirm");
+  btn.disabled = true;
+  showStatus("Erstelle Einkaufsliste...");
+
+  try {
+    await apiCall("confirmPlan");
+    const data     = await apiCall("getShoppingList");
+    shoppingItems  = data.items || [];
+    renderShopping();
+    showSuccess("Einkaufsliste erstellt ✓");
+    // Zum Einkaufs-Tab wechseln
+    const shoppingTab = document.querySelector('[data-panel="shopping"]');
+    switchTab(shoppingTab);
+  } catch (err) {
+    showError("Fehler beim Erstellen der Einkaufsliste.");
+    console.error(err);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 function renderPlan() {
-  const container = document.getElementById('meal-plan-list');
-  container.innerHTML = '';
+  const container = document.getElementById("plan-list");
+  container.innerHTML = "";
+
+  if (!mealPlan.length) {
+    container.innerHTML = `
+      <div class="empty">
+        <span class="empty-icon">🍽️</span>
+        Noch kein Plan vorhanden.<br>Tippe auf „Neuer Plan" um zu starten.
+      </div>`;
+    return;
+  }
+
+  const DAYS = ["So","Mo","Di","Mi","Do","Fr","Sa"];
 
   mealPlan.forEach((day, idx) => {
-    const dStr  = day.date.toLocaleDateString('de-DE', { day:'2-digit', month:'2-digit' });
-    const dName = ['So','Mo','Di','Mi','Do','Fr','Sa'][day.dow];
-    const dFull = ['Sonntag','Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag'][day.dow];
-
+    // Wochentrennlinie
     if (idx === 0 || idx === 7) {
-      const wl = document.createElement('div');
-      wl.className = 'week-label';
-      wl.textContent = idx === 0 ? 'Woche 1' : 'Woche 2';
+      const wl = document.createElement("div");
+      wl.className   = "week-label";
+      wl.textContent = idx === 0 ? "Woche 1" : "Woche 2";
       container.appendChild(wl);
     }
 
-    let bdg = '';
-    if (day.dow === 0)       bdg = badge('badge-sunday',  'Sonntag');
-    else if (day.isMealPrep) bdg = badge('badge-prep',    'Meal Prep');
-    else if (day.isReste)    bdg = badge('badge-reste',   'Reste');
-    else if (day.dow >= 5)   bdg = badge('badge-weekend', 'Wochenende');
+    const date     = new Date(day.date);
+    const dateStr  = `${String(date.getDate()).padStart(2,"0")}.${String(date.getMonth()+1).padStart(2,"0")}`;
+    const dayName  = DAYS[day.dayOfWeek];
 
-    const card = document.createElement('div');
-    card.className = 'day-card';
+    // Badge
+    let badgeHtml = "";
+    if (day.dayOfWeek === 0)    badgeHtml = `<span class="badge badge-sunday">Fleisch</span>`;
+    else if (day.isMealPrep)    badgeHtml = `<span class="badge badge-prep">Meal Prep</span>`;
+    else if (day.isReste)       badgeHtml = `<span class="badge badge-reste">Reste</span>`;
+    else if (day.dayOfWeek >= 5) badgeHtml = `<span class="badge badge-weekend">Wochenende</span>`;
+
+    // Kategorie-Pill
+    const tag      = (day.recipeTags || []).find(t =>
+      ["nudeln","reis","kartoffeln","fleisch"].includes(t.toLowerCase())
+    );
+    const catClass = tag ? `cat-${tag.toLowerCase()}` : "cat-default";
+    const catHtml  = tag ? `<span class="cat-pill ${catClass}">${tag}</span>` : "";
+
+    const card = document.createElement("div");
+    card.className  = "day-card";
     card.dataset.idx = idx;
+
     card.innerHTML = `
       <div class="day-header">
-        <span class="day-name">${dName} ${dStr}</span>
-        ${bdg}
+        <span class="day-name">${dayName} ${dateStr}</span>
+        ${badgeHtml}
       </div>
       <div class="meal-row">
-        <span class="drag-handle" title="Verschieben">⠿</span>
+        <span class="drag-handle">⠿</span>
         <div class="meal-info">
-          <div class="meal-name">${day.recipe?.name || '—'}</div>
-          <div class="meal-sub">${day.isReste ? 'Aufgewärmt von gestern' : (day.recipe?.aufwand||'')}</div>
+          <div class="meal-name">${day.recipeName || "—"}</div>
+          <div class="meal-sub">${day.isReste ? "Aufgewärmt" : (day.note || "")}</div>
         </div>
-        ${day.recipe ? catPill(day.recipe.cat) : ''}
+        ${catHtml}
         <div class="stepper">
           <button class="stepper-btn" onclick="changePax(${idx},-1)">−</button>
-          <span class="stepper-val" id="pax-${idx}">${day.persons}</span>
+          <span class="stepper-val" id="pax-${idx}">${day.portions}</span>
           <button class="stepper-btn" onclick="changePax(${idx},+1)">+</button>
         </div>
       </div>`;
+
     container.appendChild(card);
   });
 
   // Drag & Drop
   new Sortable(container, {
     animation:   150,
-    handle:      '.drag-handle',
-    ghostClass:  'sortable-ghost',
-    chosenClass: 'sortable-chosen',
-    filter:      '.week-label',
+    handle:      ".drag-handle",
+    ghostClass:  "sortable-ghost",
+    chosenClass: "sortable-chosen",
+    filter:      ".week-label",
     onEnd(evt) {
       const moved = mealPlan.splice(evt.oldDraggableIndex, 1)[0];
       mealPlan.splice(evt.newDraggableIndex, 0, moved);
-      showToast('Reihenfolge angepasst');
-    }
+    },
   });
 }
 
 function changePax(idx, delta) {
-  mealPlan[idx].persons = Math.max(1, Math.min(6, mealPlan[idx].persons + delta));
-  document.getElementById(`pax-${idx}`).textContent = mealPlan[idx].persons;
-  // Rebuild shopping if list is visible
-  buildShopping();
-  if (!document.getElementById('panel-shopping').classList.contains('active')) return;
-  renderShopping();
+  mealPlan[idx].portions = Math.max(1, Math.min(6, mealPlan[idx].portions + delta));
+  document.getElementById(`pax-${idx}`).textContent = mealPlan[idx].portions;
 }
 
-// ── Shopping List ──────────────────────────────────────────────────────────
-const RECIPE_INGREDIENTS = {
-  1:  [{ cat:"Fleisch",    name:"Hackfleisch",   amount:"400g" }, { cat:"Trockenwaren", name:"Spaghetti", amount:"500g" }, { cat:"Gemüse", name:"Zwiebeln", amount:"2 Stk." }],
-  2:  [{ cat:"Fleisch",    name:"Hähnchenbrust", amount:"600g" }, { cat:"Trockenwaren", name:"Reis",      amount:"400g" }, { cat:"Gemüse", name:"Paprika",  amount:"2 Stk." }],
-  4:  [{ cat:"Trockenwaren",name:"Risotto-Reis", amount:"360g" }, { cat:"Sonstiges",   name:"Parmesan",  amount:"100g" }, { cat:"Gemüse", name:"Champignons","amount":"300g" }],
-  7:  [{ cat:"Fleisch",    name:"Schweinebraten",amount:"1.2kg"}, { cat:"Gemüse",      name:"Möhren",    amount:"4 Stk."}, { cat:"Gemüse", name:"Sellerie", amount:"1 Stk." }],
-  8:  [{ cat:"Fleisch",    name:"Hähnchenfilet", amount:"600g" }, { cat:"Trockenwaren", name:"Basmatireis","amount":"400g"}, { cat:"Sonstiges","name":"Kokosmilch","amount":"400ml"}],
-  10: [{ cat:"Fleisch",    name:"Rindfleisch",   amount:"800g" }, { cat:"Gemüse",      name:"Zwiebeln",  amount:"3 Stk."}, { cat:"Gemüse", name:"Paprika",  amount:"3 Stk." }],
-};
+// ── Shopping ───────────────────────────────────────────────────
+async function loadShoppingList() {
+  showStatus("Lade Einkaufsliste...");
+  try {
+    const data    = await apiCall("getShoppingList");
+    shoppingItems = data.items || [];
+    renderShopping();
+    hideStatus();
+  } catch (err) {
+    showError("Einkaufsliste konnte nicht geladen werden.");
+    console.error(err);
+  }
+}
 
-const MOCK_OFFERS = { "Hähnchenbrust":"2,79 €/kg", "Risotto-Reis":"0,99 €", "Hackfleisch":"3,99 €/kg" };
+async function toggleItem(index) {
+  shoppingItems[index].done = !shoppingItems[index].done;
+  renderShopping();
 
-function buildShopping() {
-  const map = {};
-
-  mealPlan.forEach(day => {
-    if (!day.recipe || day.isReste) return;
-    const ings = RECIPE_INGREDIENTS[day.recipe.id];
-    if (!ings) return;
-    ings.forEach(ing => {
-      const key = ing.name;
-      if (!map[key]) map[key] = { ...ing, done:false };
-    });
-  });
-
-  // Pantry items that are needed soon
-  PANTRY_DATA.filter(p => p.daysLeft <= 5).forEach(p => {
-    if (!map[p.name]) map[p.name] = { cat:"Vorräte", name:p.name, amount:"—", done:false };
-  });
-
-  shopping = Object.values(map);
+  try {
+    await apiCall("toggleShoppingItem", { index });
+  } catch (err) {
+    // Rollback bei Fehler
+    shoppingItems[index].done = !shoppingItems[index].done;
+    renderShopping();
+    showError("Konnte nicht gespeichert werden.");
+    console.error(err);
+  }
 }
 
 function renderShopping() {
-  const container = document.getElementById('shopping-list');
-  container.innerHTML = '';
+  const container = document.getElementById("shopping-list");
+  container.innerHTML = "";
 
-  if (!shopping.length) {
-    container.innerHTML = '<p style="color:var(--text-muted);font-size:14px;padding:16px 0">Erstelle zuerst einen Plan.</p>';
+  if (!shoppingItems.length) {
+    container.innerHTML = `
+      <div class="empty">
+        <span class="empty-icon">🛒</span>
+        Keine Einkaufsliste vorhanden.<br>Bestätige zuerst den Essensplan.
+      </div>`;
     return;
   }
 
-  const byCat = {};
-  shopping.forEach((item, i) => {
-    if (!byCat[item.cat]) byCat[item.cat] = [];
-    byCat[item.cat].push({ ...item, i });
+  const byCat = new Map();
+  shoppingItems.forEach(item => {
+    if (!byCat.has(item.category)) byCat.set(item.category, []);
+    byCat.get(item.category).push(item);
   });
 
-  const catOrder = ["Fleisch","Gemüse","Molkerei","Trockenwaren","Sonstiges","Vorräte"];
-  const sorted   = [...Object.keys(byCat)].sort((a,b) => {
-    const ai = catOrder.indexOf(a), bi = catOrder.indexOf(b);
-    return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
-  });
+  byCat.forEach((items, cat) => {
+    const header = document.createElement("div");
+    header.className   = "cat-header";
+    header.textContent = cat;
+    container.appendChild(header);
 
-  sorted.forEach(cat => {
-    const ch = document.createElement('div');
-    ch.className = 'cat-header';
-    ch.textContent = cat;
-    container.appendChild(ch);
+    items.forEach(item => {
+      const amount = item.amount !== null && item.amount !== undefined
+        ? `${Math.round(item.amount * 10) / 10}${item.unit ? " " + item.unit : ""}`
+        : "";
 
-    byCat[cat].forEach(({ name, amount, done, i }) => {
-      const offer = MOCK_OFFERS[name];
-      const el    = document.createElement('div');
-      el.className = `shop-item ${done ? 'done' : ''}`;
+      const el = document.createElement("div");
+      el.className = `shop-item ${item.done ? "done" : ""}`;
       el.innerHTML = `
-        <div class="check-circle ${done?'on':''}" onclick="toggleItem(${i})">
-          ${done ? '✓' : ''}
+        <div class="check ${item.done ? "on" : ""}" onclick="toggleItem(${item.index})">
+          ${item.done ? "✓" : ""}
         </div>
-        <span class="item-name">${name}</span>
-        ${offer ? `<span class="offer-badge">🏷 ${offer}</span>` : ''}
+        <span class="item-name">${item.productName}</span>
         <span class="item-amount">${amount}</span>`;
       container.appendChild(el);
     });
   });
 }
 
-function toggleItem(idx) {
-  shopping[idx].done = !shopping[idx].done;
-  renderShopping();
+// ── Pantry ─────────────────────────────────────────────────────
+async function loadPantry() {
+  showStatus("Lade Vorräte...");
+  try {
+    const data  = await apiCall("getPantryItems");
+    pantryItems = data.items || [];
+    renderPantry();
+    hideStatus();
+  } catch (err) {
+    showError("Vorräte konnten nicht geladen werden.");
+    console.error(err);
+  }
 }
 
-// ── Pantry ─────────────────────────────────────────────────────────────────
 function renderPantry() {
-  const container = document.getElementById('pantry-list');
-  PANTRY_DATA.forEach(item => {
-    const s   = item.daysLeft <= 3 ? 'needed' : item.daysLeft <= 7 ? 'soon' : 'ok';
-    const lbl = s === 'needed' ? 'Kaufen!' : s === 'soon' ? 'Bald fällig' : 'OK';
-    const el  = document.createElement('div');
-    el.className = 'pantry-item';
+  const container = document.getElementById("pantry-list");
+  container.innerHTML = "";
+
+  if (!pantryItems.length) {
+    container.innerHTML = `
+      <div class="empty">
+        <span class="empty-icon">📦</span>
+        Noch keine Grundvorräte eingetragen.
+      </div>`;
+    return;
+  }
+
+  pantryItems.forEach(item => {
+    const nextDate = item.nextPurchaseDate
+      ? new Date(item.nextPurchaseDate).toLocaleDateString("de-DE", { day:"2-digit", month:"2-digit" })
+      : "—";
+
+    const pillClass = item.isDueSoon
+      ? (new Date(item.nextPurchaseDate) < new Date() ? "pill-needed" : "pill-soon")
+      : "pill-ok";
+    const pillLabel = pillClass === "pill-needed" ? "Kaufen!"
+                    : pillClass === "pill-soon"   ? "Bald fällig"
+                    : "OK";
+
+    const el = document.createElement("div");
+    el.className = "pantry-item";
     el.innerHTML = `
-      <div class="pantry-emoji">${item.emoji}</div>
+      <span class="pantry-emoji">📦</span>
       <div class="pantry-info">
-        <div class="pantry-name">${item.name}</div>
-        <div class="pantry-sub">Alle ${item.interval} · noch ${item.daysLeft} Tage</div>
+        <div class="pantry-name">${item.productName}</div>
+        <div class="pantry-sub">Fällig: ${nextDate} · alle ${item.intervalDays} Tage</div>
       </div>
-      <div class="status-badge status-${s}">${lbl}</div>`;
+      <span class="status-pill ${pillClass}">${pillLabel}</span>`;
     container.appendChild(el);
   });
 }
 
-// ── Navigation ─────────────────────────────────────────────────────────────
+// ── Navigation ─────────────────────────────────────────────────
+const loaded = { plan: false, shopping: false, pantry: false };
+
 function switchTab(el) {
-  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-  el.classList.add('active');
-  document.getElementById(`panel-${el.dataset.panel}`).classList.add('active');
+  document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+  document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
+  el.classList.add("active");
+  const panel = el.dataset.panel;
+  document.getElementById(`panel-${panel}`).classList.add("active");
+
+  // Lazy load beim ersten Öffnen
+  if (!loaded[panel]) {
+    loaded[panel] = true;
+    if (panel === "plan")     loadPlan();
+    if (panel === "shopping") loadShoppingList();
+    if (panel === "pantry")   loadPantry();
+  }
 }
 
-// ── Init ───────────────────────────────────────────────────────────────────
-renderPantry();
-generatePlan();
+// ── Init ───────────────────────────────────────────────────────
+loaded.plan = true;
+loadPlan();
 </script>
 </body>
 </html>
