@@ -468,9 +468,10 @@ function setupSortable(container) {
 }
 
 /**
- * Stellt sicher dass Meal-Prep immer vor dem zugehörigen Reste-Tag steht.
- * Prüft über pairId — damit werden nur wirklich zusammengehörige Paare getauscht,
- * nicht zufällig Gerichte mit gleicher recipeId aus verschiedenen Wochen.
+ * Stellt sicher dass Meal-Prep immer vor seinem zugehörigen Reste-Tag steht.
+ * Tauscht NUR wenn Reste und Meal-Prep die gleiche recipeId haben —
+ * also wirklich zusammengehören.
+ * Ignoriert Reste/MealPrep Kombinationen mit unterschiedlicher recipeId.
  */
 function ensureMealPrepOrder() {
   let changed = true;
@@ -479,9 +480,8 @@ function ensureMealPrepOrder() {
     for (let i = 0; i < mealPlan.length - 1; i++) {
       const curr = mealPlan[i];
       const next = mealPlan[i + 1];
-      // Reste vor seinem Meal-Prep (gleiche pairId) → tauschen
       if (curr.isReste && next.isMealPrep &&
-          curr.pairId && curr.pairId === next.pairId) {
+          curr.recipeId === next.recipeId) {
         mealPlan[i]     = next;
         mealPlan[i + 1] = curr;
         changed = true;
