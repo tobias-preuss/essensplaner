@@ -252,12 +252,12 @@ function lockSvg(locked) {
 }
 
 // ── Reste-Datum ermitteln ──────────────────────────────────────
-// Sucht rückwärts im mealPlan nach dem zugehörigen Meal-Prep-Gericht
-// (das Gericht das isMealPrep hat und denselben recipeId wie dieser Reste-Tag)
+// Sucht rückwärts nach dem Meal-Prep-Tag mit gleicher pairId
 function findPrepDateLabel(resteIdx) {
-  const resteRecipeId = mealPlan[resteIdx]?.recipeId;
+  const pairId = mealPlan[resteIdx]?.pairId;
+  if (!pairId) return null;
   for (let i = resteIdx - 1; i >= 0; i--) {
-    if (mealPlan[i]?.isMealPrep && mealPlan[i]?.recipeId === resteRecipeId) {
+    if (mealPlan[i]?.pairId === pairId && mealPlan[i]?.isMealPrep) {
       const d = new Date(dateSlots[i].date);
       return `${String(d.getDate()).padStart(2,"0")}.${String(d.getMonth()+1).padStart(2,"0")}`;
     }
@@ -443,25 +443,20 @@ function setupSortable(container) {
 }
 
 /**
- * Stellt sicher, dass zusammengehörige Meal-Prep/Reste-Paare
- * korrekt angeordnet sind: Meal-Prep immer vor dem zugehörigen Reste.
- *
- * Ein Reste-Tag gehört zu einem Meal-Prep-Tag wenn beide die gleiche
- * recipeId haben und der Reste-Tag ursprünglich nach dem Meal-Prep-Tag stand.
- *
- * Wenn ein Reste-Tag (isReste=true) direkt vor seinem Meal-Prep-Tag
- * (isMealPrep=true, gleiche recipeId) landet → tauschen.
+ * Stellt sicher dass Meal-Prep immer vor dem zugehörigen Reste-Tag steht.
+ * Prüft über pairId — damit werden nur wirklich zusammengehörige Paare getauscht,
+ * nicht zufällig Gerichte mit gleicher recipeId aus verschiedenen Wochen.
  */
 function ensureMealPrepOrder() {
   let changed = true;
-  // Mehrfach durchlaufen bis keine Vertauschungen mehr nötig
   while (changed) {
     changed = false;
     for (let i = 0; i < mealPlan.length - 1; i++) {
       const curr = mealPlan[i];
       const next = mealPlan[i + 1];
-      // Reste vor Meal-Prep mit gleicher recipeId → tauschen
-      if (curr.isReste && next.isMealPrep && curr.recipeId === next.recipeId) {
+      // Reste vor seinem Meal-Prep (gleiche pairId) → tauschen
+      if (curr.isReste && next.isMealPrep &&
+          curr.pairId && curr.pairId === next.pairId) {
         mealPlan[i]     = next;
         mealPlan[i + 1] = curr;
         changed = true;
@@ -513,9 +508,10 @@ function openDaySheet(idx) {
   const btns = document.getElementById("sheet-buttons");
   btns.innerHTML = "";
 
-  // Prüfe ob Folgetag ein Reste-Tag mit gleicher recipeId ist
-  const nextDay        = mealPlan[idx + 1];
-  const hasResteAfter  = nextDay && nextDay.isReste && nextDay.recipeId === day.recipeId;
+  // Prüfe ob Folgetag ein Reste-Tag mit gleicher pairId ist
+  const nextDay       = mealPlan[idx + 1];
+  const hasResteAfter = nextDay && nextDay.isReste &&
+                        day.pairId && day.pairId === nextDay.pairId;
 
   if (day.isReste) {
     document.getElementById("sheet-subtitle").textContent =
