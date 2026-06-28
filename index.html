@@ -265,16 +265,37 @@ function findPrepDateLabel(resteIdx) {
   return null;
 }
 
+/**
+ * Berechnet pairId für alle Meal-Prep/Reste-Paare neu.
+ * Wird nach jedem Laden, Generieren und Drag & Drop aufgerufen.
+ * Logik: Meal-Prep direkt gefolgt von Reste mit gleicher recipeId → Paar.
+ */
+function recalcPairIds() {
+  // Zuerst alle pairIds zurücksetzen
+  mealPlan.forEach(d => d.pairId = null);
+
+  let counter = 0;
+  for (let i = 0; i < mealPlan.length - 1; i++) {
+    const curr = mealPlan[i];
+    const next = mealPlan[i + 1];
+    if (curr.isMealPrep && next.isReste && curr.recipeId === next.recipeId) {
+      const id        = `pair-${counter++}`;
+      curr.pairId     = id;
+      next.pairId     = id;
+    }
+  }
+}
+
 // ── Plan laden ─────────────────────────────────────────────────
 async function loadPlan() {
   showStatus("Lade Essensplan...");
   try {
     const data = await apiCall("getMealPlan");
-    mealPlan   = data.mealPlan || [];
-    // Datum-Slots einmalig beim ersten Laden merken — bleiben immer fix
+    mealPlan  = data.mealPlan || [];
     if (dateSlots.length === 0) {
       dateSlots = mealPlan.map(d => ({ date: d.date, dayOfWeek: d.dayOfWeek }));
     }
+    recalcPairIds();
     renderPlan();
     hideStatus();
   } catch (err) {
@@ -295,8 +316,9 @@ async function generatePlan() {
   try {
     await apiCall("generatePlan", { lockedIndices: [...lockedDays].join(",") });
     const data = await apiCall("getMealPlan");
-    mealPlan   = data.mealPlan || [];
-    dateSlots  = mealPlan.map(d => ({ date: d.date, dayOfWeek: d.dayOfWeek }));
+    mealPlan  = data.mealPlan || [];
+    dateSlots = mealPlan.map(d => ({ date: d.date, dayOfWeek: d.dayOfWeek }));
+    recalcPairIds();
     renderPlan();
     showSuccess("Neuer Plan erstellt ✓");
   } catch (err) {
@@ -436,6 +458,9 @@ function setupSortable(container) {
       // Meal-Prep/Reste Reihenfolge korrigieren
       ensureMealPrepOrder();
 
+      // Paar-IDs neu berechnen nach Umsortierung
+      recalcPairIds();
+
       renderPlan();
       savePlanOrder();
     },
@@ -508,10 +533,13 @@ function openDaySheet(idx) {
   const btns = document.getElementById("sheet-buttons");
   btns.innerHTML = "";
 
-  // Prüfe ob Folgetag ein Reste-Tag mit gleicher pairId ist
+  // Prüfe ob Folgetag ein Reste-Tag ist der zu diesem Meal-Prep gehört.
+  // Primär über pairId, Fallback auf recipeId wenn pairId fehlt.
   const nextDay       = mealPlan[idx + 1];
-  const hasResteAfter = nextDay && nextDay.isReste &&
-                        day.pairId && day.pairId === nextDay.pairId;
+  const hasResteAfter = nextDay && nextDay.isReste && (
+    (day.pairId && day.pairId === nextDay.pairId) ||
+    (!day.pairId && day.recipeId === nextDay.recipeId)
+  );
 
   if (day.isReste) {
     document.getElementById("sheet-subtitle").textContent =
@@ -589,6 +617,7 @@ async function regenerateDay(idx, mode) {
       });
     }
 
+    recalcPairIds();
     renderPlan();
 
     [idx, secondIdx].filter(i => i !== null && i >= 0).forEach(i => {
