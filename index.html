@@ -10,7 +10,8 @@
   :root {
     --bg:           #F7F7F5;
     --surface:      #FFFFFF;
-    --surface-we:   #EAF3EC;
+    --surface-sat:  #FBF3E8;
+    --surface-sun:  #FBEAEA;
     --surface-lock: #F0F0EE;
     --border:       rgba(0,0,0,0.07);
     --text:         #1A1A18;
@@ -30,13 +31,15 @@
     --status-h:     44px;
   }
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; background: var(--bg); color: var(--text); max-width: 430px; margin: 0 auto; min-height: 100vh; -webkit-tap-highlight-color: transparent; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; background: var(--bg); color: var(--text); max-width: 430px; margin: 0 auto; min-height: 100vh; -webkit-tap-highlight-color: transparent; overflow-x: hidden; }
 
+  /* ── Tabs ─────────────────────────────────────────────────── */
   .tabs { display: flex; height: var(--tab-h); background: var(--surface); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 100; }
   .tab { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 10px; font-weight: 500; color: var(--text-muted); cursor: pointer; border-bottom: 2px solid transparent; letter-spacing: 0.3px; transition: color 0.15s, border-color 0.15s; user-select: none; }
   .tab .icon { font-size: 20px; line-height: 1; }
   .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 
+  /* ── Status Bar ───────────────────────────────────────────── */
   .status-bar { height: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 13px; font-weight: 500; transition: height 0.2s, opacity 0.2s; opacity: 0; }
   .status-bar.visible { height: var(--status-h); opacity: 1; }
   .status-bar.loading { background: var(--accent-bg); color: var(--accent-text); }
@@ -45,10 +48,12 @@
   .spinner { width: 14px; height: 14px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: spin 0.6s linear infinite; flex-shrink: 0; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  .panel { display: none; padding: 12px 12px 80px; }
+  /* ── Panel ────────────────────────────────────────────────── */
+  .panel { display: none; padding: 12px 12px 90px; }
   .panel.active { display: block; }
 
-  .action-row { display: flex; gap: 8px; margin-bottom: 14px; }
+  /* ── Buttons ──────────────────────────────────────────────── */
+  .action-row { display: flex; gap: 8px; margin-bottom: 10px; }
   .btn { flex: 1; height: 40px; border: none; border-radius: var(--radius-sm); font-size: 13px; font-weight: 600; cursor: pointer; transition: opacity 0.15s; display: flex; align-items: center; justify-content: center; gap: 6px; }
   .btn:active { opacity: 0.75; }
   .btn:disabled { opacity: 0.45; cursor: not-allowed; }
@@ -56,37 +61,74 @@
   .btn-secondary { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
   .btn-sm { flex: 0 0 auto; height: 40px; padding: 0 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 16px; cursor: pointer; background: var(--surface); color: var(--text); }
 
-  .day-card { border-radius: var(--radius); border: 1px solid var(--border); margin-bottom: 7px; overflow: hidden; background: var(--surface); transition: box-shadow 0.15s, background 0.15s, border-color 0.15s; position: relative; }
-  .day-card.weekend { background: var(--surface-we); }
-  .day-card.locked  { background: var(--surface-lock) !important; border-color: var(--locked-border); }
-  .day-card.sortable-chosen { box-shadow: 0 6px 24px rgba(0,0,0,0.13); }
-  .day-card.sortable-ghost  { opacity: 0.25; }
+  /* ── Week separator ───────────────────────────────────────── */
+  .week-sep { font-size: 11px; font-weight: 700; color: var(--text-muted); padding: 12px 4px 6px; display: flex; align-items: baseline; gap: 6px; }
+  .week-sep .kw { letter-spacing: 0.4px; }
+  .week-sep .range { font-weight: 500; color: var(--text-muted); opacity: 0.75; }
+
+  /* ── Day Card (outer wrapper = full drag handle) ────────────── */
+  .day-wrap {
+    display: flex;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    margin-bottom: 7px;
+    overflow: hidden;
+    background: var(--surface);
+    transition: box-shadow 0.15s, background 0.15s, border-color 0.15s;
+    position: relative;
+  }
+  .day-wrap.saturday { background: var(--surface-sat); }
+  .day-wrap.sunday   { background: var(--surface-sun); }
+  .day-wrap.locked   { background: var(--surface-lock) !important; border-color: var(--locked-border); }
+  .day-wrap.sortable-chosen { box-shadow: 0 6px 24px rgba(0,0,0,0.13); }
+  .day-wrap.sortable-ghost  { opacity: 0.25; }
 
   @keyframes flashGreen { 0% { background-color: #A8D5B0; } 100% { background-color: inherit; } }
-  .day-card.flash { animation: flashGreen 1.6s ease-out forwards; }
+  .day-wrap.flash { animation: flashGreen 1.6s ease-out forwards; }
 
-  .day-header { display: flex; align-items: center; padding: 8px 13px; border-bottom: 1px solid var(--border); gap: 7px; }
-  .day-name { font-size: 12px; font-weight: 600; color: var(--text-muted); min-width: 52px; }
-  .day-card.locked .day-name { color: var(--text-locked); }
+  /* Full-height drag handle, ~20% wider than before */
+  .drag-handle {
+    width: 30px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    opacity: 0.3;
+    font-size: 18px;
+    cursor: grab;
+    touch-action: none;
+    background: rgba(0,0,0,0.015);
+    border-right: 1px solid var(--border);
+  }
+  .day-wrap.locked .drag-handle { opacity: 0.12; cursor: not-allowed; pointer-events: none; }
 
-  .badge { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 20px; white-space: nowrap; }
+  .day-content { flex: 1; min-width: 0; }
+
+  /* ── Day Header (always visible, compact) ───────────────────── */
+  .day-header { display: flex; align-items: center; padding: 10px 12px; gap: 8px; cursor: pointer; }
+  .day-name   { font-size: 12px; font-weight: 600; color: var(--text-muted); min-width: 50px; flex-shrink: 0; }
+  .day-wrap.locked .day-name { color: var(--text-locked); }
+
+  .badge { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 20px; white-space: nowrap; flex-shrink: 0; }
   .badge-prep  { background: #E8F4FD; color: #1A6B9A; }
   .badge-reste { background: var(--reste-bg); color: var(--reste-text); }
 
-  .day-header-actions { margin-left: auto; display: flex; gap: 4px; align-items: center; flex-shrink: 0; }
-  .icon-btn { background: none; border: none; cursor: pointer; font-size: 17px; padding: 3px 5px; border-radius: 6px; line-height: 1; color: var(--text-muted); transition: background 0.12s; }
-  .icon-btn:active { background: var(--border); }
-  .lock-icon { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; cursor: pointer; }
-  .lock-icon svg { width: 18px; height: 18px; }
-
-  .meal-row { display: flex; align-items: center; padding: 10px 13px; gap: 9px; }
-  .drag-handle { color: var(--text-muted); opacity: 0.28; font-size: 17px; cursor: grab; flex-shrink: 0; touch-action: none; line-height: 1; }
-  .day-card.locked .drag-handle { opacity: 0.1; cursor: not-allowed; pointer-events: none; }
-
-  .meal-info { flex: 1; min-width: 0; }
-  .meal-name { font-size: 15px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color 0.2s; }
-  .day-card.locked .meal-name { color: var(--text-locked); }
+  .day-meals { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .meal-line { display: flex; align-items: center; gap: 5px; min-width: 0; }
+  .meal-line .person-tag {
+    font-size: 9px; font-weight: 700; width: 14px; height: 14px;
+    border-radius: 50%; background: var(--accent-bg); color: var(--accent-text);
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .meal-name {
+    font-size: 14.5px; font-weight: 500;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    transition: color 0.2s; cursor: text;
+  }
+  .day-wrap.locked .meal-name { color: var(--text-locked); }
   .meal-name.loading-text { color: var(--accent); display: flex; align-items: center; gap: 6px; font-size: 13px; }
+  .meal-name.placeholder  { color: var(--text-muted); font-style: italic; }
 
   .cat-pill { font-size: 10px; font-weight: 600; padding: 3px 8px; border-radius: 20px; flex-shrink: 0; text-transform: capitalize; }
   .cat-nudeln     { background: #FDECEA; color: #8B2618; }
@@ -94,15 +136,61 @@
   .cat-kartoffeln { background: var(--accent-bg); color: var(--accent-text); }
   .cat-fleisch    { background: #FDECEA; color: #922B21; }
   .cat-default    { background: #F0EFED; color: var(--text-muted); }
-  .day-card.locked .cat-pill { opacity: 0.5; }
 
-  .stepper { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
-  .stepper-btn { width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 17px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background 0.12s; line-height: 1; flex-shrink: 0; }
+  .day-header-actions { display: flex; gap: 2px; align-items: center; flex-shrink: 0; margin-left: auto; }
+  .icon-btn { background: none; border: none; cursor: pointer; font-size: 16px; padding: 4px 5px; border-radius: 6px; line-height: 1; color: var(--text-muted); transition: background 0.12s; }
+  .icon-btn:active { background: var(--border); }
+  .lock-icon { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; cursor: pointer; flex-shrink: 0; }
+  .lock-icon svg { width: 17px; height: 17px; }
+  .chevron { width: 16px; height: 16px; color: var(--text-muted); transition: transform 0.2s; flex-shrink: 0; }
+  .day-wrap.expanded .chevron { transform: rotate(180deg); }
+
+  /* ── Expanded detail area ─────────────────────────────────── */
+  .day-detail {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.25s ease;
+  }
+  .day-wrap.expanded .day-detail { max-height: 400px; }
+  .day-detail-inner { padding: 4px 12px 14px; border-top: 1px solid var(--border); }
+
+  .detail-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; }
+  .detail-row:not(:last-child) { border-bottom: 1px solid rgba(0,0,0,0.04); }
+  .detail-label { font-size: 12px; color: var(--text-muted); width: 64px; flex-shrink: 0; }
+  .detail-value { flex: 1; font-size: 14px; font-weight: 500; min-width: 0; }
+
+  .stepper { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+  .stepper-btn { width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 17px; display: flex; align-items: center; justify-content: center; cursor: pointer; line-height: 1; flex-shrink: 0; }
   .stepper-btn:active { background: var(--border); }
-  .stepper-val { font-size: 14px; font-weight: 600; min-width: 14px; text-align: center; }
-  .day-card.locked .stepper-btn { opacity: 0.4; }
-  .day-card.locked .stepper-val { color: var(--text-locked); }
+  .stepper-val { font-size: 14px; font-weight: 600; min-width: 16px; text-align: center; }
 
+  .split-toggle-btn {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 12px; border-radius: 20px; border: 1px solid var(--border);
+    background: var(--surface); font-size: 12px; font-weight: 600; color: var(--text);
+    cursor: pointer;
+  }
+  .split-toggle-btn.active { background: var(--accent-bg); border-color: var(--accent); color: var(--accent-text); }
+
+  /* ── Inline editable input ───────────────────────────────────── */
+  .meal-input-wrap { position: relative; flex: 1; min-width: 0; }
+  .meal-input {
+    width: 100%; font-size: 14.5px; font-weight: 500; font-family: inherit;
+    border: 1.5px solid var(--accent); border-radius: 6px; padding: 4px 8px;
+    background: var(--surface); color: var(--text); outline: none;
+  }
+  .autocomplete-list {
+    position: absolute; top: calc(100% + 4px); left: 0; right: 0;
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.12); z-index: 50; max-height: 200px; overflow-y: auto;
+  }
+  .autocomplete-item { padding: 10px 12px; font-size: 14px; cursor: pointer; border-bottom: 1px solid var(--border); }
+  .autocomplete-item:last-child { border-bottom: none; }
+  .autocomplete-item:active { background: var(--bg); }
+  .autocomplete-item .tag-line { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
+  .autocomplete-empty { padding: 10px 12px; font-size: 13px; color: var(--text-muted); }
+
+  /* ── Bottom Sheet ─────────────────────────────────────────── */
   .sheet-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 200; align-items: flex-end; }
   .sheet-overlay.open { display: flex; }
   .sheet { width: 100%; max-width: 430px; margin: 0 auto; background: var(--surface); border-radius: var(--radius) var(--radius) 0 0; padding: 20px 16px 36px; }
@@ -115,6 +203,7 @@
   .sheet-btn .sub { font-size: 12px; color: var(--text-muted); margin-top: 3px; }
   .sheet-btn.primary .sub { color: rgba(255,255,255,0.72); }
 
+  /* ── Confirm Dialog ───────────────────────────────────────── */
   .dialog-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 300; align-items: center; justify-content: center; padding: 24px; }
   .dialog-overlay.open { display: flex; }
   .dialog { background: var(--surface); border-radius: var(--radius); padding: 24px 20px 20px; width: 100%; max-width: 340px; text-align: center; }
@@ -123,6 +212,18 @@
   .dialog-actions { display: flex; gap: 8px; }
   .dialog-actions .btn { flex: 1; }
 
+  /* ── Undo Toast ───────────────────────────────────────────── */
+  .undo-toast {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%) translateY(80px);
+    max-width: 390px; width: calc(100% - 32px);
+    background: #1c1c1e; color: #fff; border-radius: var(--radius-sm);
+    padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    font-size: 13px; z-index: 250; transition: transform 0.25s cubic-bezier(0.34,1.56,0.64,1);
+  }
+  .undo-toast.show { transform: translateX(-50%) translateY(0); }
+  .undo-toast button { background: none; border: none; color: var(--accent); font-weight: 700; font-size: 13px; cursor: pointer; }
+
+  /* ── Shopping & Pantry (unchanged) ───────────────────────────── */
   .cat-header { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-muted); padding: 14px 2px 6px; }
   .shop-item { display: flex; align-items: center; background: var(--surface); border-radius: var(--radius-sm); border: 1px solid var(--border); padding: 11px 13px; margin-bottom: 6px; gap: 11px; transition: opacity 0.2s; }
   .shop-item.done { opacity: 0.38; }
@@ -197,6 +298,11 @@
   </div>
 </div>
 
+<div class="undo-toast" id="undo-toast">
+  <span id="undo-text">Reihenfolge geändert</span>
+  <button onclick="undoLastChange()">Rückgängig</button>
+</div>
+
 <script>
 const tg        = window.Telegram?.WebApp;
 const API_URL   = "https://script.google.com/macros/s/AKfycby7ctVegsR8rC8CZMWS5iEOvEMORyVFvnPJOQXp1BdreB4tgn4TPRLyqqDYE87PqdqjZg/exec";
@@ -205,19 +311,21 @@ if (tg) { tg.ready(); tg.expand(); }
 
 const DAYS_FULL  = ["Sonntag","Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag"];
 const DAYS_SHORT = ["So","Mo","Di","Mi","Do","Fr","Sa"];
-const WEEKEND    = [0, 6];
 
 // ── State ──────────────────────────────────────────────────────
-let mealPlan      = [];   // Gerichte wandern mit beim Drag & Drop
-let dateSlots     = [];   // Feste Datum+Wochentag Slots — wandern NICHT
-let lockedDays    = new Set();
-let shoppingItems = [];
-let pantryItems   = [];
+let mealPlan       = [];
+let dateSlots      = [];
+let lockedDays     = new Set();
+let shoppingItems  = [];
+let pantryItems    = [];
+let recipes        = [];
+let expandedIdx    = null;
+let undoSnapshot   = null;
+let undoTimer      = null;
 
 // ── API ────────────────────────────────────────────────────────
 async function apiCall(action, extraParams = {}) {
-  const initDataEncoded = INIT_DATA
-    ? btoa(unescape(encodeURIComponent(INIT_DATA))) : "";
+  const initDataEncoded = INIT_DATA ? btoa(unescape(encodeURIComponent(INIT_DATA))) : "";
   const params = new URLSearchParams({ action, initData: initDataEncoded, ...extraParams });
   const res    = await fetch(`${API_URL}?${params.toString()}`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -234,68 +342,46 @@ function showStatus(msg, type = "loading") {
   document.getElementById("status-spinner").style.display = type === "loading" ? "block" : "none";
 }
 function hideStatus(d = 0) { setTimeout(() => { document.getElementById("status-bar").className = "status-bar"; }, d); }
-function showSuccess(msg) { showStatus(msg, "success"); hideStatus(2500); }
-function showError(msg)   { showStatus(msg, "error");   hideStatus(3500); }
+function showSuccess(msg) { showStatus(msg, "success"); hideStatus(2200); }
+function showError(msg)   { showStatus(msg, "error");   hideStatus(3200); }
 
 // ── Lock SVG ───────────────────────────────────────────────────
 function lockSvg(locked) {
   return locked
-    ? `<svg viewBox="0 0 24 24" fill="none" stroke="#D4A800" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    ? `<svg viewBox="0 0 24 24" fill="none" stroke="#D4A800" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
          <rect x="5" y="11" width="14" height="10" rx="2"/>
          <path d="M8 11V7a4 4 0 0 1 8 0v4"/>
        </svg>`
-    : `<svg viewBox="0 0 24 24" fill="none" stroke="#9A9A94" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    : `<svg viewBox="0 0 24 24" fill="none" stroke="#9A9A94" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
          <rect x="5" y="11" width="14" height="10" rx="2"/>
          <path d="M8 11V7a4 4 0 0 1 7.75-1"/>
-         <line x1="16" y1="5" x2="19" y2="3"/>
+         <line x1="16" y1="5" x2="19.5" y2="2.5"/>
        </svg>`;
 }
+const CHEVRON_SVG = `<svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`;
 
-// ── Reste-Datum ermitteln ──────────────────────────────────────
-// Sucht rückwärts nach dem Meal-Prep-Tag mit gleicher pairId
-function findPrepDateLabel(resteIdx) {
-  const pairId = mealPlan[resteIdx]?.pairId;
-  if (!pairId) return null;
-  for (let i = resteIdx - 1; i >= 0; i--) {
-    if (mealPlan[i]?.pairId === pairId && mealPlan[i]?.isMealPrep) {
-      const d = new Date(dateSlots[i].date);
-      return `${String(d.getDate()).padStart(2,"0")}.${String(d.getMonth()+1).padStart(2,"0")}`;
-    }
-  }
-  return null;
+// ── Week / date helpers ──────────────────────────────────────────
+function getISOWeek(date) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
 }
-
-/**
- * Berechnet pairId für alle Meal-Prep/Reste-Paare neu.
- * Wird nach jedem Laden, Generieren und Drag & Drop aufgerufen.
- * Logik: Meal-Prep direkt gefolgt von Reste mit gleicher recipeId → Paar.
- */
-function recalcPairIds() {
-  // Zuerst alle pairIds zurücksetzen
-  mealPlan.forEach(d => d.pairId = null);
-
-  let counter = 0;
-  for (let i = 0; i < mealPlan.length - 1; i++) {
-    const curr = mealPlan[i];
-    const next = mealPlan[i + 1];
-    if (curr.isMealPrep && next.isReste && curr.recipeId === next.recipeId) {
-      const id        = `pair-${counter++}`;
-      curr.pairId     = id;
-      next.pairId     = id;
-    }
-  }
+function fmtShort(date) {
+  return `${String(date.getDate()).padStart(2,"0")}.${String(date.getMonth()+1).padStart(2,"0")}`;
 }
 
 // ── Plan laden ─────────────────────────────────────────────────
 async function loadPlan() {
   showStatus("Lade Essensplan...");
   try {
-    const data = await apiCall("getMealPlan");
-    mealPlan  = data.mealPlan || [];
+    const [planData, recipeData] = await Promise.all([apiCall("getMealPlan"), apiCall("getRecipes")]);
+    mealPlan = planData.mealPlan || [];
+    recipes  = recipeData.recipes || [];
     if (dateSlots.length === 0) {
       dateSlots = mealPlan.map(d => ({ date: d.date, dayOfWeek: d.dayOfWeek }));
     }
-    recalcPairIds();
     renderPlan();
     hideStatus();
   } catch (err) {
@@ -304,11 +390,9 @@ async function loadPlan() {
   }
 }
 
-// ── Confirmation Dialog ────────────────────────────────────────
 function askGeneratePlan() { document.getElementById("confirm-dialog").classList.add("open"); }
 function closeDialog()     { document.getElementById("confirm-dialog").classList.remove("open"); }
 
-// ── Plan generieren ────────────────────────────────────────────
 async function generatePlan() {
   closeDialog();
   document.getElementById("btn-generate").disabled = true;
@@ -316,9 +400,8 @@ async function generatePlan() {
   try {
     await apiCall("generatePlan", { lockedIndices: [...lockedDays].join(",") });
     const data = await apiCall("getMealPlan");
-    mealPlan  = data.mealPlan || [];
-    dateSlots = mealPlan.map(d => ({ date: d.date, dayOfWeek: d.dayOfWeek }));
-    recalcPairIds();
+    mealPlan   = data.mealPlan || [];
+    dateSlots  = mealPlan.map(d => ({ date: d.date, dayOfWeek: d.dayOfWeek }));
     renderPlan();
     showSuccess("Neuer Plan erstellt ✓");
   } catch (err) {
@@ -354,65 +437,278 @@ function renderPlan() {
     return;
   }
 
-  mealPlan.forEach((day, idx) => {
-    // Datum kommt immer aus dem festen Slot, nicht aus dem Gericht
-    const slot    = dateSlots[idx] || { date: day.date, dayOfWeek: day.dayOfWeek };
-    const date    = new Date(slot.date);
-    const dow     = slot.dayOfWeek;
-    const dateStr = `${String(date.getDate()).padStart(2,"0")}.${String(date.getMonth()+1).padStart(2,"0")}`;
-    const isWE    = WEEKEND.includes(dow);
-    const isLocked = lockedDays.has(idx);
+  let lastWeek = null;
 
-    // Badge: kommt vom GERICHT (wandert mit beim Drag & Drop)
-    let badgeHtml = "";
-    if (day.isMealPrep) {
-      badgeHtml = `<span class="badge badge-prep">Meal Prep</span>`;
-    } else if (day.isReste) {
-      const prepDate = findPrepDateLabel(idx);
-      badgeHtml = `<span class="badge badge-reste">${prepDate ? `Reste: ${prepDate}` : "Reste"}</span>`;
+  mealPlan.forEach((day, idx) => {
+    const slot = dateSlots[idx] || { date: day.date, dayOfWeek: day.dayOfWeek };
+    const date = new Date(slot.date);
+    const dow  = slot.dayOfWeek;
+    const week = getISOWeek(date);
+
+    if (week !== lastWeek) {
+      lastWeek = week;
+      // Wochenbereich: dieser Tag bis +6 Tage (nur als grobe Range, basierend auf erstem Tag der Woche im Plan)
+      const weekDays  = mealPlan.filter((_, i) => getISOWeek(new Date(dateSlots[i]?.date || mealPlan[i].date)) === week);
+      const firstDate = new Date(dateSlots[idx]?.date || day.date);
+      const lastIdxOfWeek = mealPlan.findLastIndex
+        ? mealPlan.findLastIndex((_, i) => getISOWeek(new Date(dateSlots[i]?.date || mealPlan[i].date)) === week)
+        : (() => { let li=idx; for (let i=idx;i<mealPlan.length;i++){ if (getISOWeek(new Date(dateSlots[i]?.date||mealPlan[i].date))===week) li=i; } return li; })();
+      const lastDate = new Date(dateSlots[lastIdxOfWeek]?.date || mealPlan[lastIdxOfWeek].date);
+
+      const sep = document.createElement("div");
+      sep.className = "week-sep";
+      sep.innerHTML = `<span class="kw">KW ${week}</span><span class="range">${fmtShort(firstDate)}–${fmtShort(lastDate)}</span>`;
+      container.appendChild(sep);
     }
 
-    // Kategorie-Pill
-    const tag      = (day.recipeTags || []).find(t =>
-      ["nudeln","reis","kartoffeln","fleisch"].includes(t.toLowerCase())
-    );
-    const catHtml  = tag
-      ? `<span class="cat-pill cat-${tag.toLowerCase()}">${tag}</span>` : "";
-
-    const card = document.createElement("div");
-    card.className   = `day-card${isWE ? " weekend" : ""}${isLocked ? " locked" : ""}`;
-    card.dataset.idx = idx;
-    card.id          = `day-card-${idx}`;
-
-    card.innerHTML = `
-      <div class="day-header">
-        <span class="day-name">${DAYS_SHORT[dow]} ${dateStr}</span>
-        ${badgeHtml}
-        <div class="day-header-actions">
-          <span class="lock-icon" onclick="toggleLock(${idx})">${lockSvg(isLocked)}</span>
-          <button class="icon-btn" onclick="openDaySheet(${idx})">↺</button>
-        </div>
-      </div>
-      <div class="meal-row">
-        <span class="drag-handle" data-idx="${idx}">⠿</span>
-        <div class="meal-info">
-          <div class="meal-name" id="meal-name-${idx}">${day.recipeName || "—"}</div>
-        </div>
-        ${catHtml}
-        <div class="stepper">
-          <button class="stepper-btn" onclick="changePax(${idx},-1)">−</button>
-          <span class="stepper-val" id="pax-${idx}">${day.portions}</span>
-          <button class="stepper-btn" onclick="changePax(${idx},+1)">+</button>
-        </div>
-      </div>`;
-
-    container.appendChild(card);
+    container.appendChild(buildDayCard(day, idx, slot));
   });
 
   setupSortable(container);
 }
 
-// ── Sortable ───────────────────────────────────────────────────
+// ── Day Card bauen ─────────────────────────────────────────────
+function buildDayCard(day, idx, slot) {
+  const date = new Date(slot.date);
+  const dow  = slot.dayOfWeek;
+  const dateStr = fmtShort(date);
+  const isLocked = lockedDays.has(idx);
+  const isExpanded = expandedIdx === idx;
+
+  let dayClass = "";
+  if (dow === 6) dayClass = "saturday";
+  if (dow === 0) dayClass = "sunday";
+
+  const wrap = document.createElement("div");
+  wrap.className = `day-wrap ${dayClass} ${isLocked ? "locked" : ""} ${isExpanded ? "expanded" : ""}`.trim();
+  wrap.dataset.idx = idx;
+  wrap.id = `day-wrap-${idx}`;
+
+  // Badge
+  let badgeHtml = "";
+  if (!day.isSplit) {
+    if (day.isMealPrep) badgeHtml = `<span class="badge badge-prep">Meal Prep</span>`;
+    else if (day.isReste) badgeHtml = `<span class="badge badge-reste">Reste</span>`;
+  }
+
+  // Kategorie-Pill (nur nicht-gesplittet)
+  const tag = (day.recipeTags || []).find(t => ["nudeln","reis","kartoffeln","fleisch"].includes(t.toLowerCase()));
+  const catHtml = (!day.isSplit && tag) ? `<span class="cat-pill cat-${tag.toLowerCase()}">${tag}</span>` : "";
+
+  // Meal display (compact header)
+  let mealsHtml = "";
+  if (day.isSplit) {
+    mealsHtml = `
+      <div class="day-meals">
+        <div class="meal-line">
+          <span class="person-tag">T</span>
+          ${renderMealNameInline(idx, "tobi", day.customNameTobi)}
+        </div>
+        <div class="meal-line">
+          <span class="person-tag">N</span>
+          ${renderMealNameInline(idx, "nora", day.customNameNora)}
+        </div>
+      </div>`;
+  } else {
+    mealsHtml = `
+      <div class="day-meals">
+        <div class="meal-line">
+          ${renderMealNameInline(idx, null, day.recipeName)}
+          ${catHtml}
+        </div>
+      </div>`;
+  }
+
+  wrap.innerHTML = `
+    <div class="drag-handle" data-idx="${idx}">⠿</div>
+    <div class="day-content">
+      <div class="day-header" onclick="toggleExpand(${idx})">
+        <span class="day-name">${DAYS_SHORT[dow]} ${dateStr}</span>
+        ${badgeHtml}
+        ${mealsHtml}
+        <div class="day-header-actions">
+          <span class="lock-icon" onclick="event.stopPropagation(); toggleLock(${idx})">${lockSvg(isLocked)}</span>
+          <button class="icon-btn" onclick="event.stopPropagation(); openDaySheet(${idx})">↺</button>
+          ${CHEVRON_SVG}
+        </div>
+      </div>
+      <div class="day-detail">
+        <div class="day-detail-inner" id="detail-${idx}">
+          ${buildDetailContent(day, idx)}
+        </div>
+      </div>
+    </div>`;
+
+  return wrap;
+}
+
+// ── Inline editable meal name (kompakte Ansicht) ───────────────
+function renderMealNameInline(idx, person, name) {
+  const displayName = name || "Gericht wählen...";
+  const cls = name ? "meal-name" : "meal-name placeholder";
+  const personAttr = person ? `'${person}'` : "null";
+  return `<span class="${cls}" id="meal-name-${idx}${person ? "-"+person : ""}"
+            onclick="event.stopPropagation(); startEditMeal(${idx}, ${personAttr}, this)">${displayName}</span>`;
+}
+
+// ── Detail-Bereich (aufgeklappt) ────────────────────────────────
+function buildDetailContent(day, idx) {
+  if (day.isSplit) {
+    return `
+      <div class="detail-row">
+        <span class="detail-label">Tobi</span>
+        <span class="detail-value">${day.customNameTobi || "—"}</span>
+        <div class="stepper">
+          <button class="stepper-btn" onclick="changePersonPax(${idx},'tobi',-1)">−</button>
+          <span class="stepper-val" id="pax-${idx}-tobi">${day.portionsTobi}</span>
+          <button class="stepper-btn" onclick="changePersonPax(${idx},'tobi',1)">+</button>
+        </div>
+      </div>
+      <div class="detail-row">
+        <span class="detail-label">Nora</span>
+        <span class="detail-value">${day.customNameNora || "—"}</span>
+        <div class="stepper">
+          <button class="stepper-btn" onclick="changePersonPax(${idx},'nora',-1)">−</button>
+          <span class="stepper-val" id="pax-${idx}-nora">${day.portionsNora}</span>
+          <button class="stepper-btn" onclick="changePersonPax(${idx},'nora',1)">+</button>
+        </div>
+      </div>
+      <div class="detail-row">
+        <span class="detail-label">Split</span>
+        <button class="split-toggle-btn active" onclick="toggleSplit(${idx})">↔ Zusammenführen</button>
+      </div>`;
+  }
+
+  return `
+    <div class="detail-row">
+      <span class="detail-label">Gericht</span>
+      <span class="detail-value">${day.recipeName || "—"}</span>
+    </div>
+    <div class="detail-row">
+      <span class="detail-label">Portionen</span>
+      <div class="stepper">
+        <button class="stepper-btn" onclick="changePax(${idx},-1)">−</button>
+        <span class="stepper-val" id="pax-${idx}">${day.portions}</span>
+        <button class="stepper-btn" onclick="changePax(${idx},1)">+</button>
+      </div>
+      <span style="font-size:11px;color:var(--text-muted);margin-left:4px">${day.portions===0?'(= Reste)':day.portions>2?'(= Meal-Prep)':''}</span>
+    </div>
+    <div class="detail-row">
+      <span class="detail-label">Split</span>
+      <button class="split-toggle-btn" onclick="toggleSplit(${idx})">⚌ Für 2 Personen trennen</button>
+    </div>`;
+}
+
+// ── Expand / Collapse ────────────────────────────────────────────
+function toggleExpand(idx) {
+  expandedIdx = expandedIdx === idx ? null : idx;
+  renderPlan();
+}
+
+// ── Inline-Edit mit Autocomplete ─────────────────────────────────
+function startEditMeal(idx, person, spanEl) {
+  if (lockedDays.has(idx)) return;
+
+  const currentName = spanEl.textContent === "Gericht wählen..." ? "" : spanEl.textContent;
+  const wrap = document.createElement("div");
+  wrap.className = "meal-input-wrap";
+  wrap.innerHTML = `<input class="meal-input" id="meal-edit-input" value="${currentName.replace(/"/g,'&quot;')}" placeholder="Gericht eingeben...">`;
+  spanEl.replaceWith(wrap);
+
+  const input = wrap.querySelector("input");
+  input.focus();
+  input.select();
+
+  let suggestionsBox = null;
+
+  function showSuggestions(query) {
+    if (suggestionsBox) suggestionsBox.remove();
+    if (!query.trim()) return;
+
+    const matches = recipes.filter(r => r.name.toLowerCase().includes(query.toLowerCase())).slice(0, 6);
+    suggestionsBox = document.createElement("div");
+    suggestionsBox.className = "autocomplete-list";
+
+    if (matches.length === 0) {
+      suggestionsBox.innerHTML = `<div class="autocomplete-empty">Kein Treffer — Enter für freien Text</div>`;
+    } else {
+      matches.forEach(r => {
+        const item = document.createElement("div");
+        item.className = "autocomplete-item";
+        item.innerHTML = `${r.name}<div class="tag-line">${(r.tags||[]).join(", ")}</div>`;
+        item.onmousedown = (e) => { e.preventDefault(); commitMeal(idx, person, r.id, r.name); };
+        suggestionsBox.appendChild(item);
+      });
+    }
+    wrap.appendChild(suggestionsBox);
+  }
+
+  input.addEventListener("input", () => showSuggestions(input.value));
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { commitMeal(idx, person, null, input.value); }
+    if (e.key === "Escape") { renderPlan(); }
+  });
+  input.addEventListener("blur", () => {
+    setTimeout(() => { if (document.activeElement !== input) commitMeal(idx, person, null, input.value); }, 150);
+  });
+}
+
+async function commitMeal(idx, person, recipeId, name) {
+  if (!name || !name.trim()) { renderPlan(); return; }
+  showStatus("Speichere...");
+  try {
+    const params = { index: idx, customName: name.trim() };
+    if (recipeId) params.recipeId = recipeId;
+    if (person)   params.person   = person;
+
+    const data = await apiCall("setMealForDay", params);
+    mealPlan[idx] = { ...mealPlan[idx], ...data.day };
+    renderPlan();
+    showSuccess("Gespeichert ✓");
+  } catch (err) {
+    showError("Konnte nicht speichern.");
+    renderPlan();
+    console.error(err);
+  }
+}
+
+// ── Split Toggle ───────────────────────────────────────────────
+async function toggleSplit(idx) {
+  showStatus("Aktualisiere...");
+  try {
+    const data = await apiCall("toggleSplit", { index: idx });
+    mealPlan[idx] = { ...mealPlan[idx], ...data.day };
+    renderPlan();
+    showSuccess("Aktualisiert ✓");
+  } catch (err) {
+    showError("Konnte nicht ändern.");
+    console.error(err);
+  }
+}
+
+// ── Stepper (gemeinsam & pro Person) ────────────────────────────
+async function changePax(idx, delta) {
+  const newVal = Math.max(0, mealPlan[idx].portions + delta);
+  mealPlan[idx].portions = newVal;
+  document.getElementById(`pax-${idx}`).textContent = newVal;
+  try {
+    const data = await apiCall("setPortions", { index: idx, value: newVal });
+    mealPlan[idx] = { ...mealPlan[idx], ...data.day };
+    renderPlan();
+  } catch (err) { console.error(err); }
+}
+
+async function changePersonPax(idx, person, delta) {
+  const key = person === "tobi" ? "portionsTobi" : "portionsNora";
+  const newVal = Math.max(1, mealPlan[idx][key] + delta);
+  mealPlan[idx][key] = newVal;
+  document.getElementById(`pax-${idx}-${person}`).textContent = newVal;
+  try {
+    await apiCall("setPortions", { index: idx, person, value: newVal });
+  } catch (err) { console.error(err); }
+}
+
+// ── Sortable mit Lock + Undo ─────────────────────────────────────
 function setupSortable(container) {
   if (window._sortable) window._sortable.destroy();
 
@@ -421,12 +717,12 @@ function setupSortable(container) {
     handle:      ".drag-handle",
     ghostClass:  "sortable-ghost",
     chosenClass: "sortable-chosen",
+    filter:      ".week-sep",
 
     onStart(evt) {
       const idx = parseInt(evt.item.dataset.idx, 10);
       if (lockedDays.has(idx)) { evt.preventDefault(); return false; }
     },
-
     onMove(evt) {
       const draggedIdx = parseInt(evt.dragged.dataset.idx, 10);
       const targetIdx  = parseInt(evt.related?.dataset.idx ?? "-1", 10);
@@ -434,18 +730,18 @@ function setupSortable(container) {
       if (targetIdx >= 0 && lockedDays.has(targetIdx)) return false;
       return true;
     },
-
     onEnd(evt) {
       const oldIdx = evt.oldIndex;
       const newIdx = evt.newIndex;
       if (oldIdx === newIdx) return;
       if (lockedDays.has(newIdx)) { renderPlan(); return; }
 
-      // Gerichte verschieben (dateSlots bleiben unverändert)
+      // Snapshot vor Änderung für Undo
+      undoSnapshot = JSON.parse(JSON.stringify(mealPlan));
+
       const moved = mealPlan.splice(oldIdx, 1)[0];
       mealPlan.splice(newIdx, 0, moved);
 
-      // Locked-Indizes anpassen
       const newLocked = new Set();
       lockedDays.forEach(i => {
         let adj = i;
@@ -455,54 +751,50 @@ function setupSortable(container) {
       });
       lockedDays = newLocked;
 
-      // Meal-Prep/Reste Reihenfolge korrigieren
-      ensureMealPrepOrder();
-
-      // Paar-IDs neu berechnen nach Umsortierung
-      recalcPairIds();
-
+      expandedIdx = null;
       renderPlan();
+      showUndoToast("Reihenfolge geändert");
       savePlanOrder();
     },
   });
 }
 
-/**
- * Stellt sicher dass Meal-Prep immer vor seinem zugehörigen Reste-Tag steht.
- * Tauscht NUR wenn Reste und Meal-Prep die gleiche recipeId haben —
- * also wirklich zusammengehören.
- * Ignoriert Reste/MealPrep Kombinationen mit unterschiedlicher recipeId.
- */
-function ensureMealPrepOrder() {
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (let i = 0; i < mealPlan.length - 1; i++) {
-      const curr = mealPlan[i];
-      const next = mealPlan[i + 1];
-      if (curr.isReste && next.isMealPrep &&
-          curr.recipeId === next.recipeId) {
-        mealPlan[i]     = next;
-        mealPlan[i + 1] = curr;
-        changed = true;
-      }
-    }
-  }
+// ── Undo Toast ─────────────────────────────────────────────────
+function showUndoToast(text) {
+  document.getElementById("undo-text").textContent = text;
+  const toast = document.getElementById("undo-toast");
+  toast.classList.add("show");
+  clearTimeout(undoTimer);
+  undoTimer = setTimeout(() => { toast.classList.remove("show"); undoSnapshot = null; }, 4000);
+}
+
+async function undoLastChange() {
+  if (!undoSnapshot) return;
+  mealPlan = undoSnapshot;
+  undoSnapshot = null;
+  document.getElementById("undo-toast").classList.remove("show");
+  clearTimeout(undoTimer);
+  renderPlan();
+  await savePlanOrder();
+  showSuccess("Rückgängig gemacht ✓");
 }
 
 // ── Reihenfolge speichern ──────────────────────────────────────
 async function savePlanOrder() {
-  showStatus("Speichere Reihenfolge...");
   try {
     const order = mealPlan.map(day => ({
-      recipeId:   day.recipeId,
-      portions:   day.portions,
-      note:       day.note || "",
-      isMealPrep: day.isMealPrep || false,
-      isReste:    day.isReste    || false,
+      recipeId:       day.recipeId,
+      recipeName:     day.recipeName,
+      isCustomName:   day.isCustomName,
+      portions:       day.portions,
+      note:           day.note || "",
+      isSplit:        day.isSplit || false,
+      customNameTobi: day.customNameTobi || "",
+      customNameNora: day.customNameNora || "",
+      portionsTobi:   day.portionsTobi,
+      portionsNora:   day.portionsNora,
     }));
     await apiCall("updateMealOrder", { order: JSON.stringify(order) });
-    showSuccess("Reihenfolge gespeichert ✓");
   } catch (err) {
     showError("Reihenfolge konnte nicht gespeichert werden.");
     console.error(err);
@@ -515,124 +807,78 @@ function toggleLock(idx) {
   renderPlan();
 }
 
-// ── Stepper ────────────────────────────────────────────────────
-function changePax(idx, delta) {
-  mealPlan[idx].portions = Math.max(1, Math.min(6, mealPlan[idx].portions + delta));
-  document.getElementById(`pax-${idx}`).textContent = mealPlan[idx].portions;
-}
+// ── Swipe gestures (links=regenerieren, rechts=locken) ─────────
+let swipeStartX = null, swipeStartY = null, swipeIdx = null;
+document.addEventListener("touchstart", (e) => {
+  const wrap = e.target.closest(".day-wrap");
+  if (!wrap || e.target.closest(".drag-handle")) return;
+  swipeStartX = e.touches[0].clientX;
+  swipeStartY = e.touches[0].clientY;
+  swipeIdx = parseInt(wrap.dataset.idx, 10);
+}, { passive: true });
 
-// ── Bottom Sheet ───────────────────────────────────────────────
+document.addEventListener("touchend", (e) => {
+  if (swipeStartX === null || swipeIdx === null) return;
+  const dx = e.changedTouches[0].clientX - swipeStartX;
+  const dy = e.changedTouches[0].clientY - swipeStartY;
+  if (Math.abs(dx) > 70 && Math.abs(dy) < 50) {
+    if (dx < 0) openDaySheet(swipeIdx);       // swipe left -> regenerate
+    else        toggleLock(swipeIdx);          // swipe right -> lock
+  }
+  swipeStartX = swipeStartY = swipeIdx = null;
+}, { passive: true });
+
+// ── Bottom Sheet: Neu generieren ─────────────────────────────────
 function openDaySheet(idx) {
-  const day   = mealPlan[idx];
-  const slot  = dateSlots[idx] || {};
-  const dow   = slot.dayOfWeek ?? day.dayOfWeek;
-  const date  = new Date(slot.date || day.date);
-  const label = `${DAYS_FULL[dow]}, ${String(date.getDate()).padStart(2,"0")}.${String(date.getMonth()+1).padStart(2,"0")}`;
+  const day  = mealPlan[idx];
+  const slot = dateSlots[idx] || {};
+  const date = new Date(slot.date || day.date);
+  const label = `${DAYS_FULL[slot.dayOfWeek ?? day.dayOfWeek]}, ${fmtShort(date)}`;
 
   document.getElementById("sheet-title").textContent = label;
   const btns = document.getElementById("sheet-buttons");
-  btns.innerHTML = "";
 
-  // Prüfe ob Folgetag ein Reste-Tag ist der zu diesem Meal-Prep gehört.
-  // Primär über pairId, Fallback auf recipeId wenn pairId fehlt.
-  const nextDay       = mealPlan[idx + 1];
-  const hasResteAfter = nextDay && nextDay.isReste && (
-    (day.pairId && day.pairId === nextDay.pairId) ||
-    (!day.pairId && day.recipeId === nextDay.recipeId)
-  );
-
-  if (day.isReste) {
-    document.getElementById("sheet-subtitle").textContent =
-      "Das ist ein Reste-Tag. Was möchtest du ändern?";
-    btns.innerHTML = `
-      <button class="sheet-btn primary" onclick="regenerateDay(${idx},'with-prep')">
-        Vortag + Reste-Tag neu generieren
-        <div class="sub">Beide Tage bekommen neue Gerichte</div>
-      </button>
-      <button class="sheet-btn" onclick="regenerateDay(${idx},'standalone')">
-        Nur diesen Tag — eigenständig kochen
-        <div class="sub">Reste-Tag wird zum normalen Kochtag</div>
-      </button>
-      <button class="sheet-btn cancel" onclick="closeSheet()">Abbrechen</button>`;
-
-  } else if (day.isMealPrep && hasResteAfter) {
-    document.getElementById("sheet-subtitle").textContent =
-      "Das ist ein Meal-Prep-Tag. Was soll neu generiert werden?";
-    btns.innerHTML = `
-      <button class="sheet-btn primary" onclick="regenerateDay(${idx},'with-reste')">
-        Meal-Prep + Reste-Tag neu generieren
-        <div class="sub">Beide Tage bekommen ein neues Gericht</div>
-      </button>
-      <button class="sheet-btn" onclick="regenerateDay(${idx},'prep-only')">
-        Nur Meal-Prep-Tag — Reste-Tag eigenständig
-        <div class="sub">Reste-Tag wird zum normalen Kochtag</div>
-      </button>
-      <button class="sheet-btn cancel" onclick="closeSheet()">Abbrechen</button>`;
-
-  } else {
-    document.getElementById("sheet-subtitle").textContent =
-      "Diesen Tag mit einem neuen Gericht belegen?";
-    btns.innerHTML = `
-      <button class="sheet-btn primary" onclick="regenerateDay(${idx},'single')">
-        Tag neu generieren
-        <div class="sub">KI wählt ein passendes Gericht</div>
-      </button>
-      <button class="sheet-btn cancel" onclick="closeSheet()">Abbrechen</button>`;
-  }
+  document.getElementById("sheet-subtitle").textContent = "Diesen Tag mit einem neuen Gericht belegen?";
+  btns.innerHTML = `
+    <button class="sheet-btn primary" onclick="regenerateDay(${idx})">
+      Tag neu generieren
+      <div class="sub">KI wählt ein passendes Gericht</div>
+    </button>
+    <button class="sheet-btn cancel" onclick="closeSheet()">Abbrechen</button>`;
 
   document.getElementById("day-sheet").classList.add("open");
 }
-
 function closeSheet(event) {
   if (event && event.target !== document.getElementById("day-sheet")) return;
   document.getElementById("day-sheet").classList.remove("open");
 }
 
-// ── Einzelnen Tag neu generieren ───────────────────────────────
-async function regenerateDay(idx, mode) {
+async function regenerateDay(idx) {
   document.getElementById("day-sheet").classList.remove("open");
   showStatus("Generiere Gericht...");
 
-  const nameEl       = document.getElementById(`meal-name-${idx}`);
-  const originalName = nameEl?.textContent || "";
+  const nameEl = document.getElementById(`meal-name-${idx}`);
+  const originalHtml = nameEl?.outerHTML;
   if (nameEl) {
-    nameEl.innerHTML = `<span class="spinner" style="width:11px;height:11px;border-width:1.5px"></span> Generiere Gericht...`;
+    nameEl.innerHTML = `<span class="spinner" style="width:11px;height:11px;border-width:1.5px"></span> Generiere...`;
     nameEl.className = "meal-name loading-text";
   }
 
-  const secondIdx    = mode === "with-prep"  ? idx - 1
-                     : mode === "with-reste" ? idx + 1 : null;
-  const secondNameEl = secondIdx !== null ? document.getElementById(`meal-name-${secondIdx}`) : null;
-  if (secondNameEl) {
-    secondNameEl.innerHTML = `<span class="spinner" style="width:11px;height:11px;border-width:1.5px"></span> Generiere Gericht...`;
-    secondNameEl.className = "meal-name loading-text";
-  }
-
   try {
-    const data = await apiCall("regenerateSingleDay", { index: idx, mode });
-
-    if (data.updatedDays?.length) {
-      data.updatedDays.forEach(({ index: i, day }) => {
-        mealPlan[i] = { ...mealPlan[i], ...day };
-      });
-    }
-
-    recalcPairIds();
+    const data = await apiCall("regenerateSingleDay", { index: idx });
+    mealPlan[idx] = { ...mealPlan[idx], ...data.day };
     renderPlan();
 
-    [idx, secondIdx].filter(i => i !== null && i >= 0).forEach(i => {
-      const card = document.getElementById(`day-card-${i}`);
-      if (card) {
-        card.classList.remove("flash");
-        void card.offsetWidth;
-        card.classList.add("flash");
-        setTimeout(() => card.classList.remove("flash"), 1800);
-      }
-    });
-
+    const card = document.getElementById(`day-wrap-${idx}`);
+    if (card) {
+      card.classList.remove("flash");
+      void card.offsetWidth;
+      card.classList.add("flash");
+      setTimeout(() => card.classList.remove("flash"), 1800);
+    }
     showSuccess("Gericht aktualisiert ✓");
   } catch (err) {
-    if (nameEl) { nameEl.textContent = originalName; nameEl.className = "meal-name"; }
+    renderPlan();
     showError("Konnte Gericht nicht ändern.");
     console.error(err);
   }
