@@ -28,7 +28,6 @@
     --radius:       14px;
     --radius-sm:    9px;
     --tab-h:        56px;
-    --status-h:     44px;
   }
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; background: var(--bg); color: var(--text); max-width: 430px; margin: 0 auto; min-height: 100vh; -webkit-tap-highlight-color: transparent; overflow-x: hidden; }
@@ -39,13 +38,20 @@
   .tab .icon { font-size: 20px; line-height: 1; }
   .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 
-  /* ── Status Bar ───────────────────────────────────────────── */
-  .status-bar { height: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 13px; font-weight: 500; transition: height 0.2s, opacity 0.2s; opacity: 0; }
-  .status-bar.visible { height: var(--status-h); opacity: 1; }
-  .status-bar.loading { background: var(--accent-bg); color: var(--accent-text); }
-  .status-bar.success { background: var(--accent-bg); color: var(--accent-text); }
-  .status-bar.error   { background: var(--warn-bg);   color: var(--warn); }
-  .spinner { width: 14px; height: 14px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: spin 0.6s linear infinite; flex-shrink: 0; }
+  /* ── Floating toast (status, replaces old banner) ────────────── */
+  .float-toast {
+    position: fixed; top: 12px; left: 50%; transform: translateX(-50%) translateY(-12px);
+    max-width: 380px; width: calc(100% - 32px);
+    background: #1c1c1e; color: #fff; border-radius: 22px;
+    padding: 10px 18px; display: flex; align-items: center; justify-content: center; gap: 8px;
+    font-size: 13px; font-weight: 500; z-index: 400; opacity: 0;
+    transition: transform 0.25s cubic-bezier(0.34,1.56,0.64,1), opacity 0.2s;
+    pointer-events: none;
+  }
+  .float-toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+  .float-toast.success { background: #2A5C37; }
+  .float-toast.error   { background: #8B2618; }
+  .float-toast .spinner { width: 13px; height: 13px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: spin 0.6s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
   /* ── Panel ────────────────────────────────────────────────── */
@@ -63,10 +69,9 @@
 
   /* ── Week separator ───────────────────────────────────────── */
   .week-sep { font-size: 11px; font-weight: 700; color: var(--text-muted); padding: 12px 4px 6px; display: flex; align-items: baseline; gap: 6px; }
-  .week-sep .kw { letter-spacing: 0.4px; }
   .week-sep .range { font-weight: 500; color: var(--text-muted); opacity: 0.75; }
 
-  /* ── Day Card (outer wrapper = full drag handle) ────────────── */
+  /* ── Day Card ─────────────────────────────────────────────── */
   .day-wrap {
     display: flex;
     border-radius: var(--radius);
@@ -86,109 +91,94 @@
   @keyframes flashGreen { 0% { background-color: #A8D5B0; } 100% { background-color: inherit; } }
   .day-wrap.flash { animation: flashGreen 1.6s ease-out forwards; }
 
-  /* Full-height drag handle, ~20% wider than before */
   .drag-handle {
-    width: 30px;
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--text-muted);
-    opacity: 0.3;
-    font-size: 18px;
-    cursor: grab;
-    touch-action: none;
-    background: rgba(0,0,0,0.015);
-    border-right: 1px solid var(--border);
+    width: 30px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-muted); opacity: 0.3; font-size: 18px;
+    cursor: grab; touch-action: none;
+    background: rgba(0,0,0,0.015); border-right: 1px solid var(--border);
   }
   .day-wrap.locked .drag-handle { opacity: 0.12; cursor: not-allowed; pointer-events: none; }
 
-  .day-content { flex: 1; min-width: 0; }
+  .day-content { flex: 1; min-width: 0; padding: 9px 11px; }
 
-  /* ── Day Header (always visible, compact) ───────────────────── */
-  .day-header { display: flex; align-items: center; padding: 10px 12px; gap: 8px; cursor: pointer; }
-  .day-name   { font-size: 12px; font-weight: 600; color: var(--text-muted); min-width: 50px; flex-shrink: 0; }
+  /* Row 1: date + badges + lock + chevron */
+  .row1 { display: flex; align-items: center; gap: 7px; cursor: pointer; }
+  .day-name { font-size: 12px; font-weight: 600; color: var(--text-muted); }
   .day-wrap.locked .day-name { color: var(--text-locked); }
-
-  .badge { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 20px; white-space: nowrap; flex-shrink: 0; }
+  .badge { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 20px; white-space: nowrap; }
   .badge-prep  { background: #E8F4FD; color: #1A6B9A; }
   .badge-reste { background: var(--reste-bg); color: var(--reste-text); }
-
-  .day-meals { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-  .meal-line { display: flex; align-items: center; gap: 5px; min-width: 0; }
-  .meal-line .person-tag {
-    font-size: 9px; font-weight: 700; width: 14px; height: 14px;
-    border-radius: 50%; background: var(--accent-bg); color: var(--accent-text);
-    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-  }
-  .meal-name {
-    font-size: 14.5px; font-weight: 500;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    transition: color 0.2s; cursor: text;
-  }
-  .day-wrap.locked .meal-name { color: var(--text-locked); }
-  .meal-name.loading-text { color: var(--accent); display: flex; align-items: center; gap: 6px; font-size: 13px; }
-  .meal-name.placeholder  { color: var(--text-muted); font-style: italic; }
-
-  .cat-pill { font-size: 10px; font-weight: 600; padding: 3px 8px; border-radius: 20px; flex-shrink: 0; text-transform: capitalize; }
-  .cat-nudeln     { background: #FDECEA; color: #8B2618; }
-  .cat-reis       { background: #FEF5E4; color: #7D5108; }
-  .cat-kartoffeln { background: var(--accent-bg); color: var(--accent-text); }
-  .cat-fleisch    { background: #FDECEA; color: #922B21; }
-  .cat-default    { background: #F0EFED; color: var(--text-muted); }
-
-  .day-header-actions { display: flex; gap: 2px; align-items: center; flex-shrink: 0; margin-left: auto; }
-  .icon-btn { background: none; border: none; cursor: pointer; font-size: 16px; padding: 4px 5px; border-radius: 6px; line-height: 1; color: var(--text-muted); transition: background 0.12s; }
-  .icon-btn:active { background: var(--border); }
+  .row1-actions { margin-left: auto; display: flex; align-items: center; gap: 2px; }
   .lock-icon { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; cursor: pointer; flex-shrink: 0; }
   .lock-icon svg { width: 17px; height: 17px; }
   .chevron { width: 16px; height: 16px; color: var(--text-muted); transition: transform 0.2s; flex-shrink: 0; }
   .day-wrap.expanded .chevron { transform: rotate(180deg); }
 
-  /* ── Expanded detail area ─────────────────────────────────── */
-  .day-detail {
-    max-height: 0;
-    overflow: hidden;
-    transition: max-height 0.25s ease;
+  /* Meal rows (row2 / row3 for split) */
+  .meal-row { display: flex; align-items: center; gap: 6px; margin-top: 6px; min-width: 0; }
+  .person-tag {
+    font-size: 9px; font-weight: 700; width: 15px; height: 15px;
+    border-radius: 50%; background: var(--accent-bg); color: var(--accent-text);
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
   }
-  .day-wrap.expanded .day-detail { max-height: 400px; }
-  .day-detail-inner { padding: 4px 12px 14px; border-top: 1px solid var(--border); }
+  .meal-name-btn {
+    flex: 1; min-width: 0; text-align: left; background: none; border: none; font-family: inherit;
+    font-size: 14.5px; font-weight: 500; color: var(--text); cursor: pointer; padding: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .day-wrap.locked .meal-name-btn { color: var(--text-locked); }
+  .meal-name-btn.placeholder { color: var(--text-muted); font-style: italic; }
+  .meal-emoji { font-size: 15px; flex-shrink: 0; line-height: 1; }
 
-  .detail-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; }
-  .detail-row:not(:last-child) { border-bottom: 1px solid rgba(0,0,0,0.04); }
-  .detail-label { font-size: 12px; color: var(--text-muted); width: 64px; flex-shrink: 0; }
-  .detail-value { flex: 1; font-size: 14px; font-weight: 500; min-width: 0; }
+  .row-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; margin-left: auto; }
+  .pill-btn {
+    font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 20px;
+    border: 1px solid var(--border); background: var(--surface); color: var(--text);
+    cursor: pointer; white-space: nowrap;
+  }
+  .pill-btn.merge { background: var(--accent-bg); border-color: var(--accent); color: var(--accent-text); }
+  .icon-btn-sm {
+    width: 26px; height: 26px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    border: none; background: none; color: var(--text-muted); font-size: 15px;
+    cursor: pointer; border-radius: 6px;
+  }
+  .icon-btn-sm:active { background: var(--border); }
+  .icon-btn-sm:disabled { opacity: 0.3; cursor: not-allowed; }
+  .icon-btn-sm.loading svg, .icon-btn-sm.loading { pointer-events: none; }
 
-  .stepper { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-  .stepper-btn { width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 17px; display: flex; align-items: center; justify-content: center; cursor: pointer; line-height: 1; flex-shrink: 0; }
+  /* ── Detail (expanded) ───────────────────────────────────── */
+  .day-detail { max-height: 0; overflow: hidden; transition: max-height 0.25s ease; }
+  .day-wrap.expanded .day-detail { max-height: 300px; }
+  .detail-row { display: flex; align-items: center; gap: 10px; padding: 8px 0 0; }
+  .stepper { display: flex; align-items: center; gap: 6px; flex-shrink: 0; margin-left: auto; }
+  .stepper-btn { width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 15px; display: flex; align-items: center; justify-content: center; cursor: pointer; line-height: 1; flex-shrink: 0; }
   .stepper-btn:active { background: var(--border); }
-  .stepper-val { font-size: 14px; font-weight: 600; min-width: 16px; text-align: center; }
+  .stepper-val { font-size: 13px; font-weight: 600; min-width: 14px; text-align: center; }
+  .detail-hint { font-size: 10.5px; color: var(--text-muted); }
 
-  .split-toggle-btn {
-    display: flex; align-items: center; gap: 6px;
-    padding: 6px 12px; border-radius: 20px; border: 1px solid var(--border);
-    background: var(--surface); font-size: 12px; font-weight: 600; color: var(--text);
-    cursor: pointer;
+  /* ── Edit Modal ───────────────────────────────────────────── */
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 350; align-items: center; justify-content: center; padding: 20px; }
+  .modal-overlay.open { display: flex; }
+  .modal { width: 100%; max-width: 380px; background: var(--surface); border-radius: var(--radius); overflow: hidden; }
+  .modal-header { padding: 18px 18px 14px; border-bottom: 1px solid var(--border); }
+  .modal-title { font-size: 16px; font-weight: 700; }
+  .modal-subtitle { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+  .modal-body { padding: 14px 18px; }
+  .modal-input {
+    width: 100%; font-size: 15px; font-family: inherit; padding: 11px 13px;
+    border: 1.5px solid var(--border); border-radius: var(--radius-sm); outline: none;
+    transition: border-color 0.15s;
   }
-  .split-toggle-btn.active { background: var(--accent-bg); border-color: var(--accent); color: var(--accent-text); }
-
-  /* ── Inline editable input ───────────────────────────────────── */
-  .meal-input-wrap { position: relative; flex: 1; min-width: 0; }
-  .meal-input {
-    width: 100%; font-size: 14.5px; font-weight: 500; font-family: inherit;
-    border: 1.5px solid var(--accent); border-radius: 6px; padding: 4px 8px;
-    background: var(--surface); color: var(--text); outline: none;
-  }
-  .autocomplete-list {
-    position: absolute; top: calc(100% + 4px); left: 0; right: 0;
-    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
-    box-shadow: 0 8px 24px rgba(0,0,0,0.12); z-index: 50; max-height: 200px; overflow-y: auto;
-  }
-  .autocomplete-item { padding: 10px 12px; font-size: 14px; cursor: pointer; border-bottom: 1px solid var(--border); }
-  .autocomplete-item:last-child { border-bottom: none; }
-  .autocomplete-item:active { background: var(--bg); }
-  .autocomplete-item .tag-line { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
-  .autocomplete-empty { padding: 10px 12px; font-size: 13px; color: var(--text-muted); }
+  .modal-input:focus { border-color: var(--accent); }
+  .modal-suggestions { margin-top: 10px; max-height: 220px; overflow-y: auto; }
+  .modal-suggestion-item { padding: 11px 12px; border-radius: var(--radius-sm); cursor: pointer; font-size: 14px; }
+  .modal-suggestion-item:active { background: var(--bg); }
+  .modal-suggestion-item .tag-line { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
+  .modal-empty-hint { font-size: 12px; color: var(--text-muted); padding: 8px 2px; }
+  .modal-footer { display: flex; gap: 8px; padding: 14px 18px 18px; }
+  .modal-footer .btn { flex: 1; }
 
   /* ── Bottom Sheet ─────────────────────────────────────────── */
   .sheet-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 200; align-items: flex-end; }
@@ -196,12 +186,10 @@
   .sheet { width: 100%; max-width: 430px; margin: 0 auto; background: var(--surface); border-radius: var(--radius) var(--radius) 0 0; padding: 20px 16px 36px; }
   .sheet-title    { font-size: 16px; font-weight: 700; margin-bottom: 6px; text-align: center; }
   .sheet-subtitle { font-size: 13px; color: var(--text-muted); text-align: center; margin-bottom: 16px; line-height: 1.45; }
-  .sheet-btn { display: block; width: 100%; padding: 14px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 14px; font-weight: 500; cursor: pointer; text-align: left; margin-bottom: 8px; transition: background 0.12s; }
+  .sheet-btn { display: block; width: 100%; padding: 14px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 14px; font-weight: 500; cursor: pointer; text-align: left; margin-bottom: 8px; }
   .sheet-btn:active { background: var(--bg); }
   .sheet-btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
   .sheet-btn.cancel  { color: var(--text-muted); text-align: center; border-color: transparent; background: none; }
-  .sheet-btn .sub { font-size: 12px; color: var(--text-muted); margin-top: 3px; }
-  .sheet-btn.primary .sub { color: rgba(255,255,255,0.72); }
 
   /* ── Confirm Dialog ───────────────────────────────────────── */
   .dialog-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 300; align-items: center; justify-content: center; padding: 24px; }
@@ -221,9 +209,9 @@
     font-size: 13px; z-index: 250; transition: transform 0.25s cubic-bezier(0.34,1.56,0.64,1);
   }
   .undo-toast.show { transform: translateX(-50%) translateY(0); }
-  .undo-toast button { background: none; border: none; color: var(--accent); font-weight: 700; font-size: 13px; cursor: pointer; }
+  .undo-toast button { background: none; border: none; color: #6FCF8D; font-weight: 700; font-size: 13px; cursor: pointer; }
 
-  /* ── Shopping & Pantry (unchanged) ───────────────────────────── */
+  /* ── Shopping & Pantry ───────────────────────────────────────── */
   .cat-header { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-muted); padding: 14px 2px 6px; }
   .shop-item { display: flex; align-items: center; background: var(--surface); border-radius: var(--radius-sm); border: 1px solid var(--border); padding: 11px 13px; margin-bottom: 6px; gap: 11px; transition: opacity 0.2s; }
   .shop-item.done { opacity: 0.38; }
@@ -254,9 +242,9 @@
   <div class="tab" data-panel="pantry" onclick="switchTab(this)"><span class="icon">📦</span>Vorräte</div>
 </nav>
 
-<div class="status-bar" id="status-bar">
-  <span class="spinner" id="status-spinner" style="display:none"></span>
-  <span id="status-text"></span>
+<div class="float-toast" id="float-toast">
+  <span class="spinner" id="toast-spinner" style="display:none"></span>
+  <span id="toast-text"></span>
 </div>
 
 <div id="panel-plan" class="panel active">
@@ -303,6 +291,24 @@
   <button onclick="undoLastChange()">Rückgängig</button>
 </div>
 
+<!-- Edit Modal -->
+<div class="modal-overlay" id="edit-modal" onclick="closeEditModalOnOverlay(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">Gericht eingeben</div>
+      <div class="modal-subtitle" id="edit-modal-subtitle"></div>
+    </div>
+    <div class="modal-body">
+      <input type="text" class="modal-input" id="edit-modal-input" placeholder="z.B. Pfeffernudeln">
+      <div class="modal-suggestions" id="edit-modal-suggestions"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeEditModal()">Abbrechen</button>
+      <button class="btn btn-primary" onclick="submitEditModal()">Übernehmen</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const tg        = window.Telegram?.WebApp;
 const API_URL   = "https://script.google.com/macros/s/AKfycby7ctVegsR8rC8CZMWS5iEOvEMORyVFvnPJOQXp1BdreB4tgn4TPRLyqqDYE87PqdqjZg/exec";
@@ -311,6 +317,20 @@ if (tg) { tg.ready(); tg.expand(); }
 
 const DAYS_FULL  = ["Sonntag","Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag"];
 const DAYS_SHORT = ["So","Mo","Di","Mi","Do","Fr","Sa"];
+
+const TAG_EMOJI = {
+  "fleisch":       "🍗",
+  "nudeln":        "🍝",
+  "reis":          "🍚",
+  "kartoffeln":    "🥔",
+  "vegetarisch":   "🥦",
+  "vegan":         "🌱",
+};
+function emojiForTags(tags) {
+  if (!tags || !tags.length) return "🍽️";
+  const first = tags[0].toLowerCase();
+  return TAG_EMOJI[first] || "🍽️";
+}
 
 // ── State ──────────────────────────────────────────────────────
 let mealPlan       = [];
@@ -322,6 +342,10 @@ let recipes        = [];
 let expandedIdx    = null;
 let undoSnapshot   = null;
 let undoTimer      = null;
+let regeneratingKeys = new Set(); // z.B. "3" oder "3-tobi" während Ladevorgang
+
+// Edit-Modal state
+let editModalCtx = null; // { idx, person }
 
 // ── API ────────────────────────────────────────────────────────
 async function apiCall(action, extraParams = {}) {
@@ -334,33 +358,37 @@ async function apiCall(action, extraParams = {}) {
   return data;
 }
 
-// ── Status ─────────────────────────────────────────────────────
-function showStatus(msg, type = "loading") {
-  const bar = document.getElementById("status-bar");
-  bar.className = `status-bar visible ${type}`;
-  document.getElementById("status-text").textContent = msg;
-  document.getElementById("status-spinner").style.display = type === "loading" ? "block" : "none";
+// ── Floating Toast (kein Layout-Shift) ──────────────────────────
+let toastTimer = null;
+function showToast(msg, type = "loading", autoHideMs = null) {
+  const toast = document.getElementById("float-toast");
+  toast.className = `float-toast show ${type}`;
+  document.getElementById("toast-text").textContent = msg;
+  document.getElementById("toast-spinner").style.display = type === "loading" ? "inline-block" : "none";
+  clearTimeout(toastTimer);
+  if (autoHideMs) toastTimer = setTimeout(() => hideToast(), autoHideMs);
 }
-function hideStatus(d = 0) { setTimeout(() => { document.getElementById("status-bar").className = "status-bar"; }, d); }
-function showSuccess(msg) { showStatus(msg, "success"); hideStatus(2200); }
-function showError(msg)   { showStatus(msg, "error");   hideStatus(3200); }
+function hideToast() {
+  document.getElementById("float-toast").className = "float-toast";
+}
+function showSuccess(msg) { showToast(msg, "success", 1800); }
+function showError(msg)   { showToast(msg, "error", 2800); }
 
 // ── Lock SVG ───────────────────────────────────────────────────
 function lockSvg(locked) {
   return locked
     ? `<svg viewBox="0 0 24 24" fill="none" stroke="#D4A800" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
-         <rect x="5" y="11" width="14" height="10" rx="2"/>
-         <path d="M8 11V7a4 4 0 0 1 8 0v4"/>
+         <rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>
        </svg>`
     : `<svg viewBox="0 0 24 24" fill="none" stroke="#9A9A94" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
-         <rect x="5" y="11" width="14" height="10" rx="2"/>
-         <path d="M8 11V7a4 4 0 0 1 7.75-1"/>
-         <line x1="16" y1="5" x2="19.5" y2="2.5"/>
+         <rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.75-1"/><line x1="16" y1="5" x2="19.5" y2="2.5"/>
        </svg>`;
 }
 const CHEVRON_SVG = `<svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`;
+const REGEN_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>`;
+const SPIN_SVG = `<svg viewBox="0 0 24 24" width="15" height="15" style="animation:spin 0.7s linear infinite"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2.5" stroke-dasharray="40 100" stroke-linecap="round"/></svg>`;
 
-// ── Week / date helpers ──────────────────────────────────────────
+// ── Date helpers ─────────────────────────────────────────────────
 function getISOWeek(date) {
   const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
   const dayNum = d.getUTCDay() || 7;
@@ -368,22 +396,18 @@ function getISOWeek(date) {
   const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
   return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
 }
-function fmtShort(date) {
-  return `${String(date.getDate()).padStart(2,"0")}.${String(date.getMonth()+1).padStart(2,"0")}`;
-}
+function fmtShort(date) { return `${String(date.getDate()).padStart(2,"0")}.${String(date.getMonth()+1).padStart(2,"0")}`; }
 
 // ── Plan laden ─────────────────────────────────────────────────
 async function loadPlan() {
-  showStatus("Lade Essensplan...");
+  showToast("Lade Essensplan...");
   try {
     const [planData, recipeData] = await Promise.all([apiCall("getMealPlan"), apiCall("getRecipes")]);
     mealPlan = planData.mealPlan || [];
     recipes  = recipeData.recipes || [];
-    if (dateSlots.length === 0) {
-      dateSlots = mealPlan.map(d => ({ date: d.date, dayOfWeek: d.dayOfWeek }));
-    }
+    if (dateSlots.length === 0) dateSlots = mealPlan.map(d => ({ date: d.date, dayOfWeek: d.dayOfWeek }));
     renderPlan();
-    hideStatus();
+    hideToast();
   } catch (err) {
     showError("Plan konnte nicht geladen werden.");
     console.error(err);
@@ -396,7 +420,7 @@ function closeDialog()     { document.getElementById("confirm-dialog").classList
 async function generatePlan() {
   closeDialog();
   document.getElementById("btn-generate").disabled = true;
-  showStatus("Erstelle neuen Plan...");
+  showToast("Erstelle neuen Plan...");
   try {
     await apiCall("generatePlan", { lockedIndices: [...lockedDays].join(",") });
     const data = await apiCall("getMealPlan");
@@ -413,7 +437,7 @@ async function generatePlan() {
 }
 
 async function confirmPlan() {
-  showStatus("Erstelle Einkaufsliste...");
+  showToast("Erstelle Einkaufsliste...");
   try {
     await apiCall("confirmPlan");
     const data    = await apiCall("getShoppingList");
@@ -438,26 +462,21 @@ function renderPlan() {
   }
 
   let lastWeek = null;
-
   mealPlan.forEach((day, idx) => {
     const slot = dateSlots[idx] || { date: day.date, dayOfWeek: day.dayOfWeek };
     const date = new Date(slot.date);
-    const dow  = slot.dayOfWeek;
     const week = getISOWeek(date);
 
     if (week !== lastWeek) {
       lastWeek = week;
-      // Wochenbereich: dieser Tag bis +6 Tage (nur als grobe Range, basierend auf erstem Tag der Woche im Plan)
-      const weekDays  = mealPlan.filter((_, i) => getISOWeek(new Date(dateSlots[i]?.date || mealPlan[i].date)) === week);
-      const firstDate = new Date(dateSlots[idx]?.date || day.date);
-      const lastIdxOfWeek = mealPlan.findLastIndex
-        ? mealPlan.findLastIndex((_, i) => getISOWeek(new Date(dateSlots[i]?.date || mealPlan[i].date)) === week)
-        : (() => { let li=idx; for (let i=idx;i<mealPlan.length;i++){ if (getISOWeek(new Date(dateSlots[i]?.date||mealPlan[i].date))===week) li=i; } return li; })();
+      let lastIdxOfWeek = idx;
+      for (let i = idx; i < mealPlan.length; i++) {
+        if (getISOWeek(new Date(dateSlots[i]?.date || mealPlan[i].date)) === week) lastIdxOfWeek = i;
+      }
       const lastDate = new Date(dateSlots[lastIdxOfWeek]?.date || mealPlan[lastIdxOfWeek].date);
-
       const sep = document.createElement("div");
       sep.className = "week-sep";
-      sep.innerHTML = `<span class="kw">KW ${week}</span><span class="range">${fmtShort(firstDate)}–${fmtShort(lastDate)}</span>`;
+      sep.innerHTML = `<span>KW ${week}</span><span class="range">${fmtShort(date)}–${fmtShort(lastDate)}</span>`;
       container.appendChild(sep);
     }
 
@@ -471,7 +490,6 @@ function renderPlan() {
 function buildDayCard(day, idx, slot) {
   const date = new Date(slot.date);
   const dow  = slot.dayOfWeek;
-  const dateStr = fmtShort(date);
   const isLocked = lockedDays.has(idx);
   const isExpanded = expandedIdx === idx;
 
@@ -484,71 +502,79 @@ function buildDayCard(day, idx, slot) {
   wrap.dataset.idx = idx;
   wrap.id = `day-wrap-${idx}`;
 
-  // Badge
   let badgeHtml = "";
   if (!day.isSplit) {
     if (day.isMealPrep) badgeHtml = `<span class="badge badge-prep">Meal Prep</span>`;
     else if (day.isReste) badgeHtml = `<span class="badge badge-reste">Reste</span>`;
   }
 
-  // Kategorie-Pill (nur nicht-gesplittet)
-  const tag = (day.recipeTags || []).find(t => ["nudeln","reis","kartoffeln","fleisch"].includes(t.toLowerCase()));
-  const catHtml = (!day.isSplit && tag) ? `<span class="cat-pill cat-${tag.toLowerCase()}">${tag}</span>` : "";
+  const row1 = `
+    <div class="row1" onclick="toggleExpand(${idx})">
+      <span class="day-name">${DAYS_SHORT[dow]} ${fmtShort(date)}</span>
+      ${badgeHtml}
+      <div class="row1-actions">
+        <span class="lock-icon" onclick="event.stopPropagation(); toggleLock(${idx})">${lockSvg(isLocked)}</span>
+        ${CHEVRON_SVG}
+      </div>
+    </div>`;
 
-  // Meal display (compact header)
-  let mealsHtml = "";
+  let mealRowsHtml = "";
   if (day.isSplit) {
-    mealsHtml = `
-      <div class="day-meals">
-        <div class="meal-line">
-          <span class="person-tag">T</span>
-          ${renderMealNameInline(idx, "tobi", day.customNameTobi)}
-        </div>
-        <div class="meal-line">
-          <span class="person-tag">N</span>
-          ${renderMealNameInline(idx, "nora", day.customNameNora)}
-        </div>
-      </div>`;
+    mealRowsHtml = buildMealRow(idx, "tobi", day.customNameTobi, day, isLocked, isExpanded, true)
+                 + buildMealRow(idx, "nora", day.customNameNora, day, isLocked, isExpanded, false);
   } else {
-    mealsHtml = `
-      <div class="day-meals">
-        <div class="meal-line">
-          ${renderMealNameInline(idx, null, day.recipeName)}
-          ${catHtml}
-        </div>
-      </div>`;
+    mealRowsHtml = buildMealRow(idx, null, day.recipeName, day, isLocked, isExpanded, true);
+  }
+
+  let detailHtml = "";
+  if (isExpanded) {
+    detailHtml = `<div class="day-detail" style="max-height:300px">${buildDetailContent(day, idx)}</div>`;
+  } else {
+    detailHtml = `<div class="day-detail"></div>`;
   }
 
   wrap.innerHTML = `
     <div class="drag-handle" data-idx="${idx}">⠿</div>
     <div class="day-content">
-      <div class="day-header" onclick="toggleExpand(${idx})">
-        <span class="day-name">${DAYS_SHORT[dow]} ${dateStr}</span>
-        ${badgeHtml}
-        ${mealsHtml}
-        <div class="day-header-actions">
-          <span class="lock-icon" onclick="event.stopPropagation(); toggleLock(${idx})">${lockSvg(isLocked)}</span>
-          <button class="icon-btn" onclick="event.stopPropagation(); openDaySheet(${idx})">↺</button>
-          ${CHEVRON_SVG}
-        </div>
-      </div>
-      <div class="day-detail">
-        <div class="day-detail-inner" id="detail-${idx}">
-          ${buildDetailContent(day, idx)}
-        </div>
-      </div>
+      ${row1}
+      ${mealRowsHtml}
+      ${detailHtml}
     </div>`;
 
   return wrap;
 }
 
-// ── Inline editable meal name (kompakte Ansicht) ───────────────
-function renderMealNameInline(idx, person, name) {
-  const displayName = name || "Gericht wählen...";
-  const cls = name ? "meal-name" : "meal-name placeholder";
-  const personAttr = person ? `'${person}'` : "null";
-  return `<span class="${cls}" id="meal-name-${idx}${person ? "-"+person : ""}"
-            onclick="event.stopPropagation(); startEditMeal(${idx}, ${personAttr}, this)">${displayName}</span>`;
+// ── Eine Gericht-Zeile bauen (Row 2 / Row 3) ───────────────────
+function buildMealRow(idx, person, name, day, isLocked, isExpanded, showSplitButton) {
+  const key = person ? `${idx}-${person}` : `${idx}`;
+  const isRegenerating = regeneratingKeys.has(key);
+  const emoji = emojiForTags(day.recipeTags);
+  const displayName = isExpanded ? (name || "Gericht wählen...") : (name || "Gericht wählen...");
+  const nameClass = name ? "meal-name-btn" : "meal-name-btn placeholder";
+  const personTag = person ? `<span class="person-tag">${person === "tobi" ? "T" : "N"}</span>` : "";
+
+  let actionHtml = "";
+  if (showSplitButton) {
+    const splitBtn = day.isSplit
+      ? `<button class="pill-btn merge" onclick="event.stopPropagation(); toggleSplit(${idx})">Merge</button>`
+      : `<button class="pill-btn" onclick="event.stopPropagation(); toggleSplit(${idx})">Split</button>`;
+    actionHtml = splitBtn;
+  }
+
+  const regenIcon = isRegenerating ? SPIN_SVG : REGEN_SVG;
+  const regenDisabled = isLocked ? "disabled" : "";
+  const regenOnClick = isLocked ? "" : `onclick="event.stopPropagation(); regenerateDay(${idx}, ${person ? `'${person}'` : "null"})"`;
+
+  return `
+    <div class="meal-row">
+      ${personTag}
+      <button class="${nameClass}" onclick="event.stopPropagation(); openEditModal(${idx}, ${person ? `'${person}'` : "null"})">${displayName}</button>
+      <div class="row-actions">
+        <span class="meal-emoji">${name ? emoji : ""}</span>
+        ${actionHtml}
+        <button class="icon-btn-sm ${isRegenerating ? "loading" : ""}" ${regenDisabled} ${regenOnClick} title="Neu generieren">${regenIcon}</button>
+      </div>
+    </div>`;
 }
 
 // ── Detail-Bereich (aufgeklappt) ────────────────────────────────
@@ -556,8 +582,7 @@ function buildDetailContent(day, idx) {
   if (day.isSplit) {
     return `
       <div class="detail-row">
-        <span class="detail-label">Tobi</span>
-        <span class="detail-value">${day.customNameTobi || "—"}</span>
+        <span class="detail-hint">Portionen Tobi</span>
         <div class="stepper">
           <button class="stepper-btn" onclick="changePersonPax(${idx},'tobi',-1)">−</button>
           <span class="stepper-val" id="pax-${idx}-tobi">${day.portionsTobi}</span>
@@ -565,37 +590,23 @@ function buildDetailContent(day, idx) {
         </div>
       </div>
       <div class="detail-row">
-        <span class="detail-label">Nora</span>
-        <span class="detail-value">${day.customNameNora || "—"}</span>
+        <span class="detail-hint">Portionen Nora</span>
         <div class="stepper">
           <button class="stepper-btn" onclick="changePersonPax(${idx},'nora',-1)">−</button>
           <span class="stepper-val" id="pax-${idx}-nora">${day.portionsNora}</span>
           <button class="stepper-btn" onclick="changePersonPax(${idx},'nora',1)">+</button>
         </div>
-      </div>
-      <div class="detail-row">
-        <span class="detail-label">Split</span>
-        <button class="split-toggle-btn active" onclick="toggleSplit(${idx})">↔ Zusammenführen</button>
       </div>`;
   }
 
   return `
     <div class="detail-row">
-      <span class="detail-label">Gericht</span>
-      <span class="detail-value">${day.recipeName || "—"}</span>
-    </div>
-    <div class="detail-row">
-      <span class="detail-label">Portionen</span>
+      <span class="detail-hint">${day.portions===0?'Reste (0 Portionen)':day.portions>2?'Meal-Prep Portionen':'Portionen'}</span>
       <div class="stepper">
         <button class="stepper-btn" onclick="changePax(${idx},-1)">−</button>
         <span class="stepper-val" id="pax-${idx}">${day.portions}</span>
         <button class="stepper-btn" onclick="changePax(${idx},1)">+</button>
       </div>
-      <span style="font-size:11px;color:var(--text-muted);margin-left:4px">${day.portions===0?'(= Reste)':day.portions>2?'(= Meal-Prep)':''}</span>
-    </div>
-    <div class="detail-row">
-      <span class="detail-label">Split</span>
-      <button class="split-toggle-btn" onclick="toggleSplit(${idx})">⚌ Für 2 Personen trennen</button>
     </div>`;
 }
 
@@ -605,76 +616,103 @@ function toggleExpand(idx) {
   renderPlan();
 }
 
-// ── Inline-Edit mit Autocomplete ─────────────────────────────────
-function startEditMeal(idx, person, spanEl) {
+// ── Edit Modal ─────────────────────────────────────────────────
+function openEditModal(idx, person) {
   if (lockedDays.has(idx)) return;
+  editModalCtx = { idx, person };
 
-  const currentName = spanEl.textContent === "Gericht wählen..." ? "" : spanEl.textContent;
-  const wrap = document.createElement("div");
-  wrap.className = "meal-input-wrap";
-  wrap.innerHTML = `<input class="meal-input" id="meal-edit-input" value="${currentName.replace(/"/g,'&quot;')}" placeholder="Gericht eingeben...">`;
-  spanEl.replaceWith(wrap);
+  const day = mealPlan[idx];
+  const currentName = person === "tobi" ? day.customNameTobi : person === "nora" ? day.customNameNora : day.recipeName;
+  const slot  = dateSlots[idx] || {};
+  const date  = new Date(slot.date || day.date);
+  const label = `${DAYS_FULL[slot.dayOfWeek ?? day.dayOfWeek]}, ${fmtShort(date)}${person ? ` · ${person === "tobi" ? "Tobi" : "Nora"}` : ""}`;
 
-  const input = wrap.querySelector("input");
-  input.focus();
-  input.select();
+  document.getElementById("edit-modal-subtitle").textContent = label;
+  const input = document.getElementById("edit-modal-input");
+  input.value = currentName || "";
+  document.getElementById("edit-modal-suggestions").innerHTML = "";
 
-  let suggestionsBox = null;
+  document.getElementById("edit-modal").classList.add("open");
+  setTimeout(() => { input.focus(); input.select(); renderModalSuggestions(input.value); }, 50);
 
-  function showSuggestions(query) {
-    if (suggestionsBox) suggestionsBox.remove();
-    if (!query.trim()) return;
+  input.oninput = () => renderModalSuggestions(input.value);
+  input.onkeydown = (e) => { if (e.key === "Enter") submitEditModal(); if (e.key === "Escape") closeEditModal(); };
+}
 
-    const matches = recipes.filter(r => r.name.toLowerCase().includes(query.toLowerCase())).slice(0, 6);
-    suggestionsBox = document.createElement("div");
-    suggestionsBox.className = "autocomplete-list";
-
-    if (matches.length === 0) {
-      suggestionsBox.innerHTML = `<div class="autocomplete-empty">Kein Treffer — Enter für freien Text</div>`;
-    } else {
-      matches.forEach(r => {
-        const item = document.createElement("div");
-        item.className = "autocomplete-item";
-        item.innerHTML = `${r.name}<div class="tag-line">${(r.tags||[]).join(", ")}</div>`;
-        item.onmousedown = (e) => { e.preventDefault(); commitMeal(idx, person, r.id, r.name); };
-        suggestionsBox.appendChild(item);
-      });
-    }
-    wrap.appendChild(suggestionsBox);
+function renderModalSuggestions(query) {
+  const box = document.getElementById("edit-modal-suggestions");
+  box.innerHTML = "";
+  if (!query.trim()) return;
+  const matches = recipes.filter(r => r.name.toLowerCase().includes(query.toLowerCase())).slice(0, 6);
+  if (matches.length === 0) {
+    box.innerHTML = `<div class="modal-empty-hint">Kein Treffer in der Datenbank — wird als freier Text übernommen.</div>`;
+    return;
   }
-
-  input.addEventListener("input", () => showSuggestions(input.value));
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") { commitMeal(idx, person, null, input.value); }
-    if (e.key === "Escape") { renderPlan(); }
-  });
-  input.addEventListener("blur", () => {
-    setTimeout(() => { if (document.activeElement !== input) commitMeal(idx, person, null, input.value); }, 150);
+  matches.forEach(r => {
+    const item = document.createElement("div");
+    item.className = "modal-suggestion-item";
+    item.innerHTML = `${emojiForTags(r.tags)} ${r.name}<div class="tag-line">${(r.tags||[]).join(", ")}</div>`;
+    item.onclick = () => { document.getElementById("edit-modal-input").value = r.name; submitEditModal(r.id); };
+    box.appendChild(item);
   });
 }
 
-async function commitMeal(idx, person, recipeId, name) {
-  if (!name || !name.trim()) { renderPlan(); return; }
-  showStatus("Speichere...");
-  try {
-    const params = { index: idx, customName: name.trim() };
-    if (recipeId) params.recipeId = recipeId;
-    if (person)   params.person   = person;
+function closeEditModal() {
+  document.getElementById("edit-modal").classList.remove("open");
+  editModalCtx = null;
+}
+function closeEditModalOnOverlay(e) {
+  if (e.target === document.getElementById("edit-modal")) closeEditModal();
+}
 
+async function submitEditModal(recipeId) {
+  const name = document.getElementById("edit-modal-input").value.trim();
+  const ctx  = editModalCtx;
+  closeEditModal();
+  if (!ctx || !name) return;
+
+  // Optimistic UI: sofort lokal updaten
+  const day = mealPlan[ctx.idx];
+  if (ctx.person === "tobi") day.customNameTobi = name;
+  else if (ctx.person === "nora") day.customNameNora = name;
+  else { day.recipeName = name; day.isCustomName = !recipeId; }
+  renderPlan();
+  showToast("Speichere...");
+
+  try {
+    const params = { index: ctx.idx, customName: name };
+    if (recipeId) params.recipeId = recipeId;
+    if (ctx.person) params.person = ctx.person;
     const data = await apiCall("setMealForDay", params);
-    mealPlan[idx] = { ...mealPlan[idx], ...data.day };
+    mealPlan[ctx.idx] = { ...mealPlan[ctx.idx], ...data.day };
     renderPlan();
     showSuccess("Gespeichert ✓");
   } catch (err) {
     showError("Konnte nicht speichern.");
-    renderPlan();
     console.error(err);
   }
 }
 
-// ── Split Toggle ───────────────────────────────────────────────
+// ── Split Toggle (optimistic) ────────────────────────────────────
 async function toggleSplit(idx) {
-  showStatus("Aktualisiere...");
+  const day = mealPlan[idx];
+
+  // Optimistic lokale Vorschau
+  if (!day.isSplit) {
+    day.isSplit = true;
+    day.customNameTobi = day.recipeName || "";
+    day.customNameNora = "";
+    day.portionsTobi = 1;
+    day.portionsNora = 1;
+  } else {
+    day.isSplit = false;
+    day.recipeName = day.customNameTobi;
+    day.isCustomName = true;
+    day.portions = (day.portionsTobi||1) + (day.portionsNora||1);
+  }
+  renderPlan();
+  showToast("Speichere...");
+
   try {
     const data = await apiCall("toggleSplit", { index: idx });
     mealPlan[idx] = { ...mealPlan[idx], ...data.day };
@@ -686,16 +724,18 @@ async function toggleSplit(idx) {
   }
 }
 
-// ── Stepper (gemeinsam & pro Person) ────────────────────────────
+// ── Stepper (optimistic) ─────────────────────────────────────────
 async function changePax(idx, delta) {
   const newVal = Math.max(0, mealPlan[idx].portions + delta);
   mealPlan[idx].portions = newVal;
+  mealPlan[idx].isMealPrep = newVal > 2;
+  mealPlan[idx].isReste = newVal === 0;
   document.getElementById(`pax-${idx}`).textContent = newVal;
+  renderPlan();
   try {
     const data = await apiCall("setPortions", { index: idx, value: newVal });
     mealPlan[idx] = { ...mealPlan[idx], ...data.day };
-    renderPlan();
-  } catch (err) { console.error(err); }
+  } catch (err) { console.error(err); showError("Konnte nicht speichern."); }
 }
 
 async function changePersonPax(idx, person, delta) {
@@ -705,7 +745,7 @@ async function changePersonPax(idx, person, delta) {
   document.getElementById(`pax-${idx}-${person}`).textContent = newVal;
   try {
     await apiCall("setPortions", { index: idx, person, value: newVal });
-  } catch (err) { console.error(err); }
+  } catch (err) { console.error(err); showError("Konnte nicht speichern."); }
 }
 
 // ── Sortable mit Lock + Undo ─────────────────────────────────────
@@ -731,14 +771,11 @@ function setupSortable(container) {
       return true;
     },
     onEnd(evt) {
-      const oldIdx = evt.oldIndex;
-      const newIdx = evt.newIndex;
+      const oldIdx = evt.oldIndex, newIdx = evt.newIndex;
       if (oldIdx === newIdx) return;
       if (lockedDays.has(newIdx)) { renderPlan(); return; }
 
-      // Snapshot vor Änderung für Undo
       undoSnapshot = JSON.parse(JSON.stringify(mealPlan));
-
       const moved = mealPlan.splice(oldIdx, 1)[0];
       mealPlan.splice(newIdx, 0, moved);
 
@@ -750,7 +787,6 @@ function setupSortable(container) {
         newLocked.add(adj);
       });
       lockedDays = newLocked;
-
       expandedIdx = null;
       renderPlan();
       showUndoToast("Reihenfolge geändert");
@@ -759,7 +795,6 @@ function setupSortable(container) {
   });
 }
 
-// ── Undo Toast ─────────────────────────────────────────────────
 function showUndoToast(text) {
   document.getElementById("undo-text").textContent = text;
   const toast = document.getElementById("undo-toast");
@@ -767,11 +802,9 @@ function showUndoToast(text) {
   clearTimeout(undoTimer);
   undoTimer = setTimeout(() => { toast.classList.remove("show"); undoSnapshot = null; }, 4000);
 }
-
 async function undoLastChange() {
   if (!undoSnapshot) return;
-  mealPlan = undoSnapshot;
-  undoSnapshot = null;
+  mealPlan = undoSnapshot; undoSnapshot = null;
   document.getElementById("undo-toast").classList.remove("show");
   clearTimeout(undoTimer);
   renderPlan();
@@ -779,73 +812,55 @@ async function undoLastChange() {
   showSuccess("Rückgängig gemacht ✓");
 }
 
-// ── Reihenfolge speichern ──────────────────────────────────────
 async function savePlanOrder() {
   try {
     const order = mealPlan.map(day => ({
-      recipeId:       day.recipeId,
-      recipeName:     day.recipeName,
-      isCustomName:   day.isCustomName,
-      portions:       day.portions,
-      note:           day.note || "",
-      isSplit:        day.isSplit || false,
-      customNameTobi: day.customNameTobi || "",
-      customNameNora: day.customNameNora || "",
-      portionsTobi:   day.portionsTobi,
-      portionsNora:   day.portionsNora,
+      recipeId: day.recipeId, recipeName: day.recipeName, isCustomName: day.isCustomName,
+      portions: day.portions, note: day.note || "",
+      isSplit: day.isSplit || false, customNameTobi: day.customNameTobi || "", customNameNora: day.customNameNora || "",
+      portionsTobi: day.portionsTobi, portionsNora: day.portionsNora,
     }));
     await apiCall("updateMealOrder", { order: JSON.stringify(order) });
-  } catch (err) {
-    showError("Reihenfolge konnte nicht gespeichert werden.");
-    console.error(err);
-  }
+  } catch (err) { showError("Reihenfolge konnte nicht gespeichert werden."); console.error(err); }
 }
 
-// ── Lock ───────────────────────────────────────────────────────
 function toggleLock(idx) {
   if (lockedDays.has(idx)) lockedDays.delete(idx); else lockedDays.add(idx);
   renderPlan();
 }
 
-// ── Swipe gestures (links=regenerieren, rechts=locken) ─────────
+// ── Swipe: links=regenerieren (auch gelockt erlaubt für ganzen Tag), rechts=lock ──
 let swipeStartX = null, swipeStartY = null, swipeIdx = null;
 document.addEventListener("touchstart", (e) => {
   const wrap = e.target.closest(".day-wrap");
   if (!wrap || e.target.closest(".drag-handle")) return;
-  swipeStartX = e.touches[0].clientX;
-  swipeStartY = e.touches[0].clientY;
+  swipeStartX = e.touches[0].clientX; swipeStartY = e.touches[0].clientY;
   swipeIdx = parseInt(wrap.dataset.idx, 10);
 }, { passive: true });
-
 document.addEventListener("touchend", (e) => {
   if (swipeStartX === null || swipeIdx === null) return;
   const dx = e.changedTouches[0].clientX - swipeStartX;
   const dy = e.changedTouches[0].clientY - swipeStartY;
   if (Math.abs(dx) > 70 && Math.abs(dy) < 50) {
-    if (dx < 0) openDaySheet(swipeIdx);       // swipe left -> regenerate
-    else        toggleLock(swipeIdx);          // swipe right -> lock
+    if (dx < 0) openDaySheet(swipeIdx); else toggleLock(swipeIdx);
   }
   swipeStartX = swipeStartY = swipeIdx = null;
 }, { passive: true });
 
-// ── Bottom Sheet: Neu generieren ─────────────────────────────────
+// ── Bottom Sheet: Neu generieren (funktioniert auch gelockt) ────
 function openDaySheet(idx) {
-  const day  = mealPlan[idx];
+  const day = mealPlan[idx];
   const slot = dateSlots[idx] || {};
   const date = new Date(slot.date || day.date);
   const label = `${DAYS_FULL[slot.dayOfWeek ?? day.dayOfWeek]}, ${fmtShort(date)}`;
 
   document.getElementById("sheet-title").textContent = label;
-  const btns = document.getElementById("sheet-buttons");
-
   document.getElementById("sheet-subtitle").textContent = "Diesen Tag mit einem neuen Gericht belegen?";
-  btns.innerHTML = `
-    <button class="sheet-btn primary" onclick="regenerateDay(${idx})">
+  document.getElementById("sheet-buttons").innerHTML = `
+    <button class="sheet-btn primary" onclick="regenerateDay(${idx}, null); closeSheet()">
       Tag neu generieren
-      <div class="sub">KI wählt ein passendes Gericht</div>
     </button>
     <button class="sheet-btn cancel" onclick="closeSheet()">Abbrechen</button>`;
-
   document.getElementById("day-sheet").classList.add("open");
 }
 function closeSheet(event) {
@@ -853,31 +868,29 @@ function closeSheet(event) {
   document.getElementById("day-sheet").classList.remove("open");
 }
 
-async function regenerateDay(idx) {
-  document.getElementById("day-sheet").classList.remove("open");
-  showStatus("Generiere Gericht...");
-
-  const nameEl = document.getElementById(`meal-name-${idx}`);
-  const originalHtml = nameEl?.outerHTML;
-  if (nameEl) {
-    nameEl.innerHTML = `<span class="spinner" style="width:11px;height:11px;border-width:1.5px"></span> Generiere...`;
-    nameEl.className = "meal-name loading-text";
-  }
+// ── Regenerieren (pro Person oder ganzer Tag), auch wenn gelockt ─
+async function regenerateDay(idx, person) {
+  const key = person ? `${idx}-${person}` : `${idx}`;
+  regeneratingKeys.add(key);
+  renderPlan();
+  showToast("Generiere Gericht...");
 
   try {
-    const data = await apiCall("regenerateSingleDay", { index: idx });
+    const params = { index: idx };
+    if (person) params.person = person;
+    const data = await apiCall("regenerateSingleDay", params);
     mealPlan[idx] = { ...mealPlan[idx], ...data.day };
+    regeneratingKeys.delete(key);
     renderPlan();
 
     const card = document.getElementById(`day-wrap-${idx}`);
     if (card) {
-      card.classList.remove("flash");
-      void card.offsetWidth;
-      card.classList.add("flash");
+      card.classList.remove("flash"); void card.offsetWidth; card.classList.add("flash");
       setTimeout(() => card.classList.remove("flash"), 1800);
     }
     showSuccess("Gericht aktualisiert ✓");
   } catch (err) {
+    regeneratingKeys.delete(key);
     renderPlan();
     showError("Konnte Gericht nicht ändern.");
     console.error(err);
@@ -886,27 +899,20 @@ async function regenerateDay(idx) {
 
 // ── Shopping ───────────────────────────────────────────────────
 async function loadShoppingList() {
-  showStatus("Lade Einkaufsliste...");
+  showToast("Lade Einkaufsliste...");
   try {
-    const data    = await apiCall("getShoppingList");
+    const data = await apiCall("getShoppingList");
     shoppingItems = data.items || [];
     renderShopping();
-    hideStatus();
+    hideToast();
   } catch (err) { showError("Einkaufsliste konnte nicht geladen werden."); }
 }
-
 async function toggleItem(index) {
   shoppingItems[index].done = !shoppingItems[index].done;
   renderShopping();
-  try {
-    await apiCall("toggleShoppingItem", { index });
-  } catch (err) {
-    shoppingItems[index].done = !shoppingItems[index].done;
-    renderShopping();
-    showError("Konnte nicht gespeichert werden.");
-  }
+  try { await apiCall("toggleShoppingItem", { index }); }
+  catch (err) { shoppingItems[index].done = !shoppingItems[index].done; renderShopping(); showError("Konnte nicht gespeichert werden."); }
 }
-
 function renderShopping() {
   const container = document.getElementById("shopping-list");
   container.innerHTML = "";
@@ -915,23 +921,15 @@ function renderShopping() {
     return;
   }
   const byCat = new Map();
-  shoppingItems.forEach(item => {
-    if (!byCat.has(item.category)) byCat.set(item.category, []);
-    byCat.get(item.category).push(item);
-  });
+  shoppingItems.forEach(item => { if (!byCat.has(item.category)) byCat.set(item.category, []); byCat.get(item.category).push(item); });
   byCat.forEach((items, cat) => {
-    const h = document.createElement("div");
-    h.className = "cat-header"; h.textContent = cat;
+    const h = document.createElement("div"); h.className = "cat-header"; h.textContent = cat;
     container.appendChild(h);
     items.forEach(item => {
-      const amount = item.amount !== null && item.amount !== undefined
-        ? `${Math.round(item.amount * 10) / 10}${item.unit ? " " + item.unit : ""}` : "";
+      const amount = item.amount !== null && item.amount !== undefined ? `${Math.round(item.amount * 10) / 10}${item.unit ? " " + item.unit : ""}` : "";
       const el = document.createElement("div");
       el.className = `shop-item ${item.done ? "done" : ""}`;
-      el.innerHTML = `
-        <div class="check ${item.done ? "on" : ""}" onclick="toggleItem(${item.index})">${item.done ? "✓" : ""}</div>
-        <span class="item-name">${item.productName}</span>
-        <span class="item-amount">${amount}</span>`;
+      el.innerHTML = `<div class="check ${item.done ? "on" : ""}" onclick="toggleItem(${item.index})">${item.done ? "✓" : ""}</div><span class="item-name">${item.productName}</span><span class="item-amount">${amount}</span>`;
       container.appendChild(el);
     });
   });
@@ -939,36 +937,25 @@ function renderShopping() {
 
 // ── Pantry ─────────────────────────────────────────────────────
 async function loadPantry() {
-  showStatus("Lade Vorräte...");
+  showToast("Lade Vorräte...");
   try {
-    const data  = await apiCall("getPantryItems");
+    const data = await apiCall("getPantryItems");
     pantryItems = data.items || [];
     renderPantry();
-    hideStatus();
+    hideToast();
   } catch (err) { showError("Vorräte konnten nicht geladen werden."); }
 }
-
 function renderPantry() {
   const container = document.getElementById("pantry-list");
   container.innerHTML = "";
-  if (!pantryItems.length) {
-    container.innerHTML = `<div class="empty"><span class="empty-icon">📦</span>Noch keine Grundvorräte eingetragen.</div>`;
-    return;
-  }
+  if (!pantryItems.length) { container.innerHTML = `<div class="empty"><span class="empty-icon">📦</span>Noch keine Grundvorräte eingetragen.</div>`; return; }
   pantryItems.forEach(item => {
-    const nextDate  = item.nextPurchaseDate
-      ? new Date(item.nextPurchaseDate).toLocaleDateString("de-DE", { day:"2-digit", month:"2-digit" }) : "—";
-    const pillClass = item.isDueSoon
-      ? (new Date(item.nextPurchaseDate) < new Date() ? "pill-needed" : "pill-soon") : "pill-ok";
+    const nextDate = item.nextPurchaseDate ? new Date(item.nextPurchaseDate).toLocaleDateString("de-DE", { day:"2-digit", month:"2-digit" }) : "—";
+    const pillClass = item.isDueSoon ? (new Date(item.nextPurchaseDate) < new Date() ? "pill-needed" : "pill-soon") : "pill-ok";
     const pillLabel = { "pill-needed":"Kaufen!", "pill-soon":"Bald", "pill-ok":"OK" }[pillClass];
     const el = document.createElement("div");
     el.className = "pantry-item";
-    el.innerHTML = `
-      <div class="pantry-info">
-        <div class="pantry-name">${item.productName}</div>
-        <div class="pantry-sub">Fällig: ${nextDate} · alle ${item.intervalDays} Tage</div>
-      </div>
-      <span class="status-pill ${pillClass}">${pillLabel}</span>`;
+    el.innerHTML = `<div class="pantry-info"><div class="pantry-name">${item.productName}</div><div class="pantry-sub">Fällig: ${nextDate} · alle ${item.intervalDays} Tage</div></div><span class="status-pill ${pillClass}">${pillLabel}</span>`;
     container.appendChild(el);
   });
 }
