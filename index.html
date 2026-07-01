@@ -38,9 +38,9 @@
   .tab .icon { font-size: 20px; line-height: 1; }
   .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 
-  /* ── Floating toast (status, replaces old banner) ────────────── */
+  /* ── Floating toast (status) ────────────────────────────────── */
   .float-toast {
-    position: fixed; top: 12px; left: 50%; transform: translateX(-50%) translateY(-12px);
+    position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%) translateY(20px);
     max-width: 380px; width: calc(100% - 32px);
     background: #1c1c1e; color: #fff; border-radius: 22px;
     padding: 10px 18px; display: flex; align-items: center; justify-content: center; gap: 8px;
@@ -417,15 +417,34 @@ async function loadPlan() {
 function askGeneratePlan() { document.getElementById("confirm-dialog").classList.add("open"); }
 function closeDialog()     { document.getElementById("confirm-dialog").classList.remove("open"); }
 
+// ── Meal name display inkl. Lade-State ─────────────────────────
+function getMealDisplayName(idx, person, day) {
+  const key = person ? `${idx}-${person}` : `${idx}`;
+  if (regeneratingKeys.has(key)) return null; // null = zeigt Lade-Indikator
+  if (person === "tobi") return day.customNameTobi;
+  if (person === "nora") return day.customNameNora;
+  return day.recipeName;
+}
+
 async function generatePlan() {
   closeDialog();
   document.getElementById("btn-generate").disabled = true;
   showToast("Erstelle neuen Plan...");
   try {
+    // Gelockte Indizes an API übergeben damit sie nicht überschrieben werden
     await apiCall("generatePlan", { lockedIndices: [...lockedDays].join(",") });
-    const data = await apiCall("getMealPlan");
-    mealPlan   = data.mealPlan || [];
-    dateSlots  = mealPlan.map(d => ({ date: d.date, dayOfWeek: d.dayOfWeek }));
+    const planData = await apiCall("getMealPlan");
+    const newPlan  = planData.mealPlan || [];
+
+    // Gelockte Tage aus altem Plan beibehalten
+    lockedDays.forEach(lockedIdx => {
+      if (mealPlan[lockedIdx] && newPlan[lockedIdx]) {
+        newPlan[lockedIdx] = mealPlan[lockedIdx];
+      }
+    });
+
+    mealPlan  = newPlan;
+    dateSlots = planData.mealPlan.map(d => ({ date: d.date, dayOfWeek: d.dayOfWeek }));
     renderPlan();
     showSuccess("Neuer Plan erstellt ✓");
   } catch (err) {
@@ -433,6 +452,45 @@ async function generatePlan() {
     console.error(err);
   } finally {
     document.getElementById("btn-generate").disabled = false;
+  }
+}
+
+async function regenerateDay(idx, person) {
+  const key = person ? `${idx}-${person}` : `${idx}`;
+  regeneratingKeys.add(key);
+  renderPlan(); // zeigt Ladeindikator im Namen
+  showToast("Generiere Gericht...");
+
+  try {
+    const params = { index: idx };
+    if (person) params.person = person;
+    const data = await apiCall("regenerateSingleDay", params);
+
+    // Ergebnis korrekt in State schreiben
+    const updated = data.day || {};
+    if (person === "tobi") {
+      mealPlan[idx].customNameTobi = updated.recipeName || updated.customNameTobi || "";
+    } else if (person === "nora") {
+      mealPlan[idx].customNameNora = updated.recipeName || updated.customNameNora || "";
+    } else {
+      mealPlan[idx] = { ...mealPlan[idx], ...updated };
+    }
+
+    regeneratingKeys.delete(key);
+    renderPlan();
+
+    const card = document.getElementById(`day-wrap-${idx}`);
+    if (card) {
+      card.classList.remove("flash"); void card.offsetWidth;
+      card.classList.add("flash");
+      setTimeout(() => card.classList.remove("flash"), 1800);
+    }
+    showSuccess("Gericht aktualisiert ✓");
+  } catch (err) {
+    regeneratingKeys.delete(key);
+    renderPlan();
+    showError("Konnte Gericht nicht ändern.");
+    console.error(err);
   }
 }
 
@@ -549,30 +607,44 @@ function buildMealRow(idx, person, name, day, isLocked, isExpanded, showSplitBut
   const key = person ? `${idx}-${person}` : `${idx}`;
   const isRegenerating = regeneratingKeys.has(key);
   const emoji = emojiForTags(day.recipeTags);
-  const displayName = isExpanded ? (name || "Gericht wählen...") : (name || "Gericht wählen...");
-  const nameClass = name ? "meal-name-btn" : "meal-name-btn placeholder";
+
+  let nameHtml;
+  if (isRegenerating) {
+    // Grüner Ladeindikator statt Gerichtname
+    nameHtml = `<span style="flex:1;min-width:0;font-size:13.5px;font-weight:500;color:var(--accent);display:flex;align-items:center;gap:5px;">
+      <svg style="width:12px;height:12px;animation:spin 0.7s linear infinite;flex-shrink:0" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2.5" stroke-dasharray="40 100" stroke-linecap="round"/></svg>
+      Generiere...
+    </span>`;
+  } else {
+    const displayName = name || "Gericht wählen...";
+    const nameClass = name ? "meal-name-btn" : "meal-name-btn placeholder";
+    const personParam = person ? `'${person}'` : "null";
+    nameHtml = `<button class="${nameClass}" onclick="event.stopPropagation(); openEditModal(${idx}, ${personParam})">${displayName}</button>`;
+  }
+
   const personTag = person ? `<span class="person-tag">${person === "tobi" ? "T" : "N"}</span>` : "";
 
   let actionHtml = "";
-  if (showSplitButton) {
+  if (showSplitButton && !isRegenerating) {
     const splitBtn = day.isSplit
       ? `<button class="pill-btn merge" onclick="event.stopPropagation(); toggleSplit(${idx})">Merge</button>`
       : `<button class="pill-btn" onclick="event.stopPropagation(); toggleSplit(${idx})">Split</button>`;
     actionHtml = splitBtn;
   }
 
-  const regenIcon = isRegenerating ? SPIN_SVG : REGEN_SVG;
-  const regenDisabled = isLocked ? "disabled" : "";
-  const regenOnClick = isLocked ? "" : `onclick="event.stopPropagation(); regenerateDay(${idx}, ${person ? `'${person}'` : "null"})"`;
+  const regenIcon = isRegenerating ? "" : REGEN_SVG;
+  const regenDisabled = (isLocked || isRegenerating) ? "disabled" : "";
+  const personParam = person ? `'${person}'` : "null";
+  const regenOnClick = (isLocked || isRegenerating) ? "" : `onclick="event.stopPropagation(); regenerateDay(${idx}, ${personParam})"`;
 
   return `
     <div class="meal-row">
       ${personTag}
-      <button class="${nameClass}" onclick="event.stopPropagation(); openEditModal(${idx}, ${person ? `'${person}'` : "null"})">${displayName}</button>
+      ${nameHtml}
       <div class="row-actions">
-        <span class="meal-emoji">${name ? emoji : ""}</span>
+        ${!isRegenerating && name ? `<span class="meal-emoji">${emoji}</span>` : ""}
         ${actionHtml}
-        <button class="icon-btn-sm ${isRegenerating ? "loading" : ""}" ${regenDisabled} ${regenOnClick} title="Neu generieren">${regenIcon}</button>
+        <button class="icon-btn-sm" ${regenDisabled} ${regenOnClick} title="Neu generieren">${regenIcon}</button>
       </div>
     </div>`;
 }
@@ -866,35 +938,6 @@ function openDaySheet(idx) {
 function closeSheet(event) {
   if (event && event.target !== document.getElementById("day-sheet")) return;
   document.getElementById("day-sheet").classList.remove("open");
-}
-
-// ── Regenerieren (pro Person oder ganzer Tag), auch wenn gelockt ─
-async function regenerateDay(idx, person) {
-  const key = person ? `${idx}-${person}` : `${idx}`;
-  regeneratingKeys.add(key);
-  renderPlan();
-  showToast("Generiere Gericht...");
-
-  try {
-    const params = { index: idx };
-    if (person) params.person = person;
-    const data = await apiCall("regenerateSingleDay", params);
-    mealPlan[idx] = { ...mealPlan[idx], ...data.day };
-    regeneratingKeys.delete(key);
-    renderPlan();
-
-    const card = document.getElementById(`day-wrap-${idx}`);
-    if (card) {
-      card.classList.remove("flash"); void card.offsetWidth; card.classList.add("flash");
-      setTimeout(() => card.classList.remove("flash"), 1800);
-    }
-    showSuccess("Gericht aktualisiert ✓");
-  } catch (err) {
-    regeneratingKeys.delete(key);
-    renderPlan();
-    showError("Konnte Gericht nicht ändern.");
-    console.error(err);
-  }
 }
 
 // ── Shopping ───────────────────────────────────────────────────
