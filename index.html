@@ -250,7 +250,7 @@
 <div id="panel-plan" class="panel active">
   <div class="action-row">
     <button class="btn btn-primary" onclick="askGeneratePlan()" id="btn-generate">✨ Neuer Plan</button>
-    <button class="btn btn-secondary" onclick="confirmPlan()">🛒 Einkaufsliste erstellen</button>
+    <button class="btn btn-secondary" onclick="savePlan()" id="btn-save">💾 Plan speichern</button>
   </div>
   <div id="plan-list"></div>
 </div>
@@ -406,6 +406,8 @@ async function loadPlan() {
     mealPlan = planData.mealPlan || [];
     recipes  = recipeData.recipes || [];
     if (dateSlots.length === 0) dateSlots = mealPlan.map(d => ({ date: d.date, dayOfWeek: d.dayOfWeek }));
+    // Lock-Zustand aus Sheets laden
+    lockedDays = new Set(mealPlan.map((d,i) => d.isLocked ? i : -1).filter(i => i >= 0));
     renderPlan();
     hideToast();
   } catch (err) {
@@ -896,9 +898,23 @@ async function savePlanOrder() {
   } catch (err) { showError("Reihenfolge konnte nicht gespeichert werden."); console.error(err); }
 }
 
-function toggleLock(idx) {
+async function toggleLock(idx) {
+  // Optimistic update
   if (lockedDays.has(idx)) lockedDays.delete(idx); else lockedDays.add(idx);
+  // isLocked im lokalen State updaten
+  if (mealPlan[idx]) mealPlan[idx].isLocked = lockedDays.has(idx);
   renderPlan();
+  // Im Hintergrund in Sheets persistieren
+  try {
+    await apiCall("toggleLock", { index: idx });
+  } catch (err) {
+    // Rollback bei Fehler
+    if (lockedDays.has(idx)) lockedDays.delete(idx); else lockedDays.add(idx);
+    if (mealPlan[idx]) mealPlan[idx].isLocked = lockedDays.has(idx);
+    renderPlan();
+    showError("Lock konnte nicht gespeichert werden.");
+    console.error(err);
+  }
 }
 
 // ── Swipe: links=regenerieren (auch gelockt erlaubt für ganzen Tag), rechts=lock ──
@@ -938,6 +954,37 @@ function openDaySheet(idx) {
 function closeSheet(event) {
   if (event && event.target !== document.getElementById("day-sheet")) return;
   document.getElementById("day-sheet").classList.remove("open");
+}
+
+// ── Plan Speichern ─────────────────────────────────────────────
+async function savePlan() {
+  const btn = document.getElementById('btn-save');
+  if (btn) btn.disabled = true;
+  showToast('Speichere Plan...');
+  try {
+    const order = mealPlan.map(day => ({
+      recipeId:       day.recipeId,
+      recipeName:     day.recipeName,
+      isCustomName:   day.isCustomName,
+      portions:       day.portions,
+      note:           day.note || '',
+      isSplit:        day.isSplit || false,
+      customNameTobi: day.customNameTobi || '',
+      customNameNora: day.customNameNora || '',
+      portionsTobi:   day.portionsTobi,
+      portionsNora:   day.portionsNora,
+      isLocked:       mealPlan.indexOf(day) >= 0 ? lockedDays.has(mealPlan.indexOf(day)) : false,
+    }));
+    // isLocked korrekt per Index setzen
+    mealPlan.forEach((day, idx) => { order[idx].isLocked = lockedDays.has(idx); });
+    await apiCall('savePlan', { order: JSON.stringify(order) });
+    showSuccess('Plan gespeichert ✓');
+  } catch (err) {
+    showError('Plan konnte nicht gespeichert werden.');
+    console.error(err);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 // ── Shopping ───────────────────────────────────────────────────
