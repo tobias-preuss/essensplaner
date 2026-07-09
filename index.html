@@ -829,9 +829,9 @@ function setupSortable(container) {
   window._sortable = new Sortable(container, {
     animation:   200,
     handle:      ".drag-handle",
+    draggable:   ".day-wrap",
     ghostClass:  "sortable-ghost",
     chosenClass: "sortable-chosen",
-    filter:      ".week-sep",
 
     onStart(evt) {
       const idx = parseInt(evt.item.dataset.idx, 10);
@@ -845,7 +845,12 @@ function setupSortable(container) {
       return true;
     },
     onEnd(evt) {
-      const oldIdx = evt.oldIndex, newIdx = evt.newIndex;
+      // evt.oldIndex/newIndex zählen auch .week-sep-Trenner mit, da SortableJS sie
+      // für die Indexberechnung nicht ausschließt (nur "draggable" bestimmt, was gezogen
+      // werden kann). Indizes daher selbst aus dataset.idx + tatsächlicher DOM-Position
+      // der .day-wrap-Elemente ableiten, damit sie zu mealPlan[] passen.
+      const oldIdx = parseInt(evt.item.dataset.idx, 10);
+      const newIdx = Array.from(container.querySelectorAll(".day-wrap")).indexOf(evt.item);
       if (oldIdx === newIdx) return;
       if (lockedDays.has(newIdx)) { renderPlan(); return; }
 
