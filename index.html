@@ -221,6 +221,21 @@
   .item-name { flex: 1; font-size: 15px; }
   .item-amount { font-size: 13px; color: var(--text-muted); font-weight: 500; white-space: nowrap; }
 
+  .shop-group { margin-bottom: 6px; }
+  .shop-group .shop-item { margin-bottom: 0; }
+  .shop-item.has-sub { border-radius: var(--radius-sm) var(--radius-sm) 0 0; border-bottom: none; }
+  .shop-subitem { display: flex; align-items: center; background: var(--surface); border: 1px solid var(--border); border-top: none; padding: 9px 13px 9px 28px; gap: 11px; font-size: 13.5px; color: var(--text-muted); transition: opacity 0.2s; }
+  .shop-subitem:last-child { border-radius: 0 0 var(--radius-sm) var(--radius-sm); }
+  .shop-subitem .check { width: 18px; height: 18px; font-size: 10px; }
+  .shop-subitem.done { opacity: 0.5; }
+  .shop-subitem.done .item-name { text-decoration: line-through; }
+
+  .modal-check-row { display: flex; align-items: center; gap: 10px; padding: 9px 2px; cursor: pointer; }
+  .modal-check-row .ing-name { flex: 1; font-size: 14px; }
+  .modal-check-row .ing-qty { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+  .checkbox-row { display: flex; align-items: center; gap: 8px; margin-top: 14px; font-size: 13px; color: var(--text); }
+  .checkbox-row input { width: 16px; height: 16px; accent-color: var(--accent); }
+
   .pantry-item { display: flex; align-items: center; background: var(--surface); border-radius: var(--radius-sm); border: 1px solid var(--border); padding: 12px 13px; margin-bottom: 6px; gap: 11px; }
   .pantry-info { flex: 1; }
   .pantry-name { font-size: 15px; font-weight: 500; }
@@ -258,7 +273,8 @@
 <div id="panel-shopping" class="panel">
   <div class="action-row">
     <button class="btn-sm" onclick="loadShoppingList()">↺</button>
-    <button class="btn btn-primary" onclick="confirmPlan()">🛒 Liste neu erstellen</button>
+    <button class="btn btn-primary" onclick="openManualAddModal()">+ Manuell hinzufügen</button>
+    <button class="btn-sm" onclick="openDeleteShoppingSheet()">🗑️</button>
   </div>
   <div id="shopping-list"></div>
 </div>
@@ -309,6 +325,64 @@
   </div>
 </div>
 
+<!-- Zur Einkaufsliste hinzufügen -->
+<div class="modal-overlay" id="add-shopping-modal" onclick="closeAddShoppingModalOnOverlay(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">Zur Einkaufsliste hinzufügen</div>
+      <div class="modal-subtitle" id="add-shopping-modal-subtitle"></div>
+    </div>
+    <div class="modal-body">
+      <div id="add-shopping-ingredient-list"></div>
+      <label class="checkbox-row">
+        <input type="checkbox" id="add-shopping-dish-checkbox" checked>
+        <span>Gericht ebenfalls hinzufügen</span>
+      </label>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeAddShoppingModal()">Abbrechen</button>
+      <button class="btn btn-primary" onclick="submitAddShoppingModal()">Hinzufügen</button>
+    </div>
+  </div>
+</div>
+
+<!-- Manuell hinzufügen -->
+<div class="modal-overlay" id="manual-add-modal" onclick="closeManualAddModalOnOverlay(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">Manuell hinzufügen</div>
+    </div>
+    <div class="modal-body">
+      <input type="text" class="modal-input" id="manual-add-name" placeholder="z.B. Zwiebeln">
+      <div class="modal-suggestions" id="manual-add-suggestions"></div>
+      <div class="detail-row" style="padding-top:14px">
+        <span class="detail-hint">Menge (Stk, optional)</span>
+        <div class="stepper">
+          <button class="stepper-btn" onclick="changeManualAddQty(-1)">−</button>
+          <span class="stepper-val" id="manual-add-qty">0</span>
+          <button class="stepper-btn" onclick="changeManualAddQty(1)">+</button>
+        </div>
+      </div>
+      <input type="text" class="modal-input" id="manual-add-category" placeholder="Kategorie (z.B. Gemüse)" style="margin-top:12px">
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeManualAddModal()">Abbrechen</button>
+      <button class="btn btn-primary" onclick="submitManualAddModal()">Hinzufügen</button>
+    </div>
+  </div>
+</div>
+
+<!-- Einkaufsliste löschen -->
+<div class="sheet-overlay" id="delete-shopping-sheet" onclick="closeDeleteShoppingSheet(event)">
+  <div class="sheet">
+    <div class="sheet-title">Einkaufsliste löschen</div>
+    <div class="sheet-subtitle">Was soll gelöscht werden?</div>
+    <button class="sheet-btn" onclick="submitDeleteShopping('done')">Nur Erledigte löschen</button>
+    <button class="sheet-btn" onclick="submitDeleteShopping('all')">Gesamte Liste löschen</button>
+    <button class="sheet-btn cancel" onclick="closeDeleteShoppingSheet()">Abbrechen</button>
+  </div>
+</div>
+
 <script>
 const tg        = window.Telegram?.WebApp;
 const API_URL   = "https://script.google.com/macros/s/AKfycby7ctVegsR8rC8CZMWS5iEOvEMORyVFvnPJOQXp1BdreB4tgn4TPRLyqqDYE87PqdqjZg/exec";
@@ -346,6 +420,23 @@ let regeneratingKeys = new Set(); // z.B. "3" oder "3-tobi" während Ladevorgang
 
 // Edit-Modal state
 let editModalCtx = null; // { idx, person }
+
+// Add-Shopping-Modal state
+let addShoppingCtx = null; // { idx, person, recipeId, portions, ingredients: [{name, unit, scaledQty, checked}] }
+let manualAddQty = 0;
+
+// Findet das DB-Rezept zu einem Tages-Gericht (für den 🛒-Button).
+// Bei Split-Tagen gibt es keine recipeId pro Seite, nur Freitext -> per Namen matchen
+// (analog zur bisherigen Server-Logik für Split-Zutaten).
+function findRecipeForDay(day, person) {
+  if (!person) {
+    if (!day.recipeId) return null;
+    return recipes.find(r => String(r.id) === String(day.recipeId)) || null;
+  }
+  const name = person === "tobi" ? day.customNameTobi : day.customNameNora;
+  if (!name) return null;
+  return recipes.find(r => r.name.trim().toLowerCase() === name.trim().toLowerCase()) || null;
+}
 
 // ── API ────────────────────────────────────────────────────────
 async function apiCall(action, extraParams = {}) {
@@ -496,17 +587,169 @@ async function regenerateDay(idx, person) {
   }
 }
 
-async function confirmPlan() {
-  showToast("Erstelle Einkaufsliste...");
+// ── Zur Einkaufsliste hinzufügen (🛒-Popup) ─────────────────────
+function openAddToShoppingModal(idx, person, recipeId, portions) {
+  const recipe = recipes.find(r => String(r.id) === String(recipeId));
+  if (!recipe || !recipe.ingredients) return;
+
+  addShoppingCtx = {
+    idx, person, recipeId, portions,
+    ingredients: recipe.ingredients.map(ing => ({
+      name: ing.name,
+      unit: ing.unit,
+      scaledQty: (ing.amount === null || ing.amount === undefined) ? null : Math.round(ing.amount * portions * 10) / 10,
+      checked: true,
+    })),
+  };
+
+  const day = mealPlan[idx];
+  const slot = dateSlots[idx] || {};
+  const date = new Date(slot.date || day.date);
+  const label = `${DAYS_FULL[slot.dayOfWeek ?? day.dayOfWeek]}, ${fmtShort(date)} · ${recipe.name}`;
+  document.getElementById("add-shopping-modal-subtitle").textContent = label;
+  document.getElementById("add-shopping-dish-checkbox").checked = true;
+  renderAddShoppingIngredientList();
+  document.getElementById("add-shopping-modal").classList.add("open");
+}
+
+function renderAddShoppingIngredientList() {
+  const box = document.getElementById("add-shopping-ingredient-list");
+  box.innerHTML = "";
+  addShoppingCtx.ingredients.forEach(ing => {
+    const qtyLabel = ing.scaledQty !== null ? `${ing.scaledQty}${ing.unit ? " " + ing.unit : ""}` : "";
+    const row = document.createElement("div");
+    row.className = "modal-check-row";
+    row.innerHTML = `
+      <div class="check ${ing.checked ? "on" : ""}">${ing.checked ? "✓" : ""}</div>
+      <span class="ing-name">${ing.name}</span>
+      <span class="ing-qty">${qtyLabel}</span>`;
+    row.onclick = () => { ing.checked = !ing.checked; renderAddShoppingIngredientList(); };
+    box.appendChild(row);
+  });
+}
+
+function closeAddShoppingModal() {
+  document.getElementById("add-shopping-modal").classList.remove("open");
+  addShoppingCtx = null;
+}
+function closeAddShoppingModalOnOverlay(e) {
+  if (e.target === document.getElementById("add-shopping-modal")) closeAddShoppingModal();
+}
+
+async function submitAddShoppingModal() {
+  const ctx = addShoppingCtx;
+  if (!ctx) return;
+  const selectedNames = ctx.ingredients.filter(ing => ing.checked).map(ing => ing.name);
+  const addDishEntry  = document.getElementById("add-shopping-dish-checkbox").checked;
+  closeAddShoppingModal();
+  if (!selectedNames.length) return;
+
+  showToast("Füge zur Einkaufsliste hinzu...");
   try {
-    await apiCall("confirmPlan");
-    const data    = await apiCall("getShoppingList");
+    const data = await apiCall("addDishToShoppingList", {
+      recipeId:            ctx.recipeId,
+      portions:             ctx.portions,
+      selectedIngredients: JSON.stringify(selectedNames),
+      addDishEntry:         addDishEntry ? "true" : "false",
+    });
     shoppingItems = data.items || [];
-    renderShopping();
-    showSuccess("Einkaufsliste erstellt ✓");
-    switchTab(document.querySelector('[data-panel="shopping"]'));
+    renderShoppingV2();
+    showSuccess("Zur Einkaufsliste hinzugefügt ✓");
   } catch (err) {
-    showError("Fehler beim Erstellen der Einkaufsliste.");
+    showError("Konnte nicht hinzugefügt werden.");
+    console.error(err);
+  }
+}
+
+// ── Manuell hinzufügen (Popup) ──────────────────────────────────
+function openManualAddModal() {
+  manualAddQty = 0;
+  document.getElementById("manual-add-name").value = "";
+  document.getElementById("manual-add-category").value = "";
+  document.getElementById("manual-add-qty").textContent = "0";
+  document.getElementById("manual-add-suggestions").innerHTML = "";
+  document.getElementById("manual-add-modal").classList.add("open");
+
+  const input = document.getElementById("manual-add-name");
+  setTimeout(() => input.focus(), 50);
+  input.oninput = () => renderManualAddSuggestions(input.value);
+}
+function closeManualAddModal() { document.getElementById("manual-add-modal").classList.remove("open"); }
+function closeManualAddModalOnOverlay(e) {
+  if (e.target === document.getElementById("manual-add-modal")) closeManualAddModal();
+}
+function changeManualAddQty(delta) {
+  manualAddQty = Math.max(0, manualAddQty + delta);
+  document.getElementById("manual-add-qty").textContent = manualAddQty;
+}
+
+// Sammelt alle bekannten Zutatennamen aus der Rezept-DB (dedupliziert) für die Autocomplete.
+function getKnownIngredients() {
+  const byName = new Map();
+  recipes.forEach(r => (r.ingredients || []).forEach(ing => {
+    if (!byName.has(ing.name)) byName.set(ing.name, ing.category || "Sonstiges");
+  }));
+  return byName;
+}
+
+function renderManualAddSuggestions(query) {
+  const box = document.getElementById("manual-add-suggestions");
+  box.innerHTML = "";
+  if (!query.trim()) return;
+  const known = getKnownIngredients();
+  const matches = Array.from(known.entries())
+    .filter(([name]) => name.toLowerCase().includes(query.toLowerCase()))
+    .slice(0, 6);
+  matches.forEach(([name, category]) => {
+    const item = document.createElement("div");
+    item.className = "modal-suggestion-item";
+    item.innerHTML = `${name}<div class="tag-line">${category}</div>`;
+    item.onclick = () => {
+      document.getElementById("manual-add-name").value = name;
+      document.getElementById("manual-add-category").value = category;
+      box.innerHTML = "";
+    };
+    box.appendChild(item);
+  });
+}
+
+async function submitManualAddModal() {
+  const name = document.getElementById("manual-add-name").value.trim();
+  if (!name) { closeManualAddModal(); return; }
+  const category = document.getElementById("manual-add-category").value.trim() || "Sonstiges";
+  const qty = manualAddQty > 0 ? manualAddQty : null;
+  closeManualAddModal();
+
+  showToast("Füge hinzu...");
+  try {
+    const params = { name, category };
+    if (qty !== null) { params.qty = qty; params.unit = "Stk"; }
+    const data = await apiCall("addManualItem", params);
+    shoppingItems = data.items || [];
+    renderShoppingV2();
+    showSuccess("Hinzugefügt ✓");
+  } catch (err) {
+    showError("Konnte nicht hinzugefügt werden.");
+    console.error(err);
+  }
+}
+
+// ── Einkaufsliste löschen (Popup) ────────────────────────────────
+function openDeleteShoppingSheet() { document.getElementById("delete-shopping-sheet").classList.add("open"); }
+function closeDeleteShoppingSheet(event) {
+  if (event && event.target !== document.getElementById("delete-shopping-sheet")) return;
+  document.getElementById("delete-shopping-sheet").classList.remove("open");
+}
+async function submitDeleteShopping(mode) {
+  closeDeleteShoppingSheet();
+  showToast("Lösche...");
+  try {
+    const data = await apiCall("deleteShoppingItems", { mode });
+    shoppingItems = data.items || [];
+    renderShoppingV2();
+    showSuccess("Gelöscht ✓");
+  } catch (err) {
+    showError("Konnte nicht gelöscht werden.");
     console.error(err);
   }
 }
@@ -639,6 +882,14 @@ function buildMealRow(idx, person, name, day, isLocked, isExpanded, showSplitBut
   const personParam = person ? `'${person}'` : "null";
   const regenOnClick = (isLocked || isRegenerating) ? "" : `onclick="event.stopPropagation(); regenerateDay(${idx}, ${personParam})"`;
 
+  // 🛒-Button: nur wenn das Gericht als DB-Rezept erkennbar ist (Zutaten bekannt)
+  const matchedRecipe = isRegenerating ? null : findRecipeForDay(day, person);
+  let cartBtn = "";
+  if (matchedRecipe) {
+    const rowPortions = person === "tobi" ? day.portionsTobi : person === "nora" ? day.portionsNora : day.portions;
+    cartBtn = `<button class="icon-btn-sm" onclick="event.stopPropagation(); openAddToShoppingModal(${idx}, ${personParam}, '${matchedRecipe.id}', ${rowPortions})" title="Zur Einkaufsliste">🛒</button>`;
+  }
+
   return `
     <div class="meal-row">
       ${personTag}
@@ -646,6 +897,7 @@ function buildMealRow(idx, person, name, day, isLocked, isExpanded, showSplitBut
       <div class="row-actions">
         ${!isRegenerating && name ? `<span class="meal-emoji">${emoji}</span>` : ""}
         ${actionHtml}
+        ${cartBtn}
         <button class="icon-btn-sm" ${regenDisabled} ${regenOnClick} title="Neu generieren">${regenIcon}</button>
       </div>
     </div>`;
@@ -992,42 +1244,119 @@ async function savePlan() {
   }
 }
 
-// ── Shopping ───────────────────────────────────────────────────
+// ── Shopping V2 (Produkte + Gerichte, bidirektional verknüpft) ─
 async function loadShoppingList() {
   showToast("Lade Einkaufsliste...");
   try {
-    const data = await apiCall("getShoppingList");
+    const data = await apiCall("getShoppingListV2");
     shoppingItems = data.items || [];
-    renderShopping();
+    renderShoppingV2();
     hideToast();
   } catch (err) { showError("Einkaufsliste konnte nicht geladen werden."); }
 }
-async function toggleItem(index) {
-  shoppingItems[index].done = !shoppingItems[index].done;
-  renderShopping();
-  try { await apiCall("toggleShoppingItem", { index }); }
-  catch (err) { shoppingItems[index].done = !shoppingItems[index].done; renderShopping(); showError("Konnte nicht gespeichert werden."); }
+
+// Kein Optimistic Update: die bidirektionale Verknüpfung (4 Fälle) wird server-seitig
+// aufgelöst, daher einfacher Await-Roundtrip mit autoritativer Server-Antwort.
+async function toggleShoppingEntry(kind, id, index) {
+  showToast("Aktualisiere...");
+  try {
+    const params = { kind, id };
+    if (index !== null && index !== undefined) params.index = index;
+    const data = await apiCall("toggleShoppingEntry", params);
+    shoppingItems = data.items || [];
+    renderShoppingV2();
+    hideToast();
+  } catch (err) {
+    showError("Konnte nicht aktualisiert werden.");
+    console.error(err);
+  }
 }
-function renderShopping() {
+
+function formatShoppingQty(qty, unit) {
+  if (qty === null || qty === undefined) return "";
+  const rounded = Math.round(qty * 10) / 10;
+  return `${rounded}${unit ? " " + unit : ""}`;
+}
+
+function buildProductRow(product) {
+  const wrap = document.createElement("div");
+  wrap.className = "shop-group";
+
+  let statusHtml;
+  if (product.isDone) {
+    statusHtml = `<span class="item-amount" style="color:var(--accent)">Erledigt</span>`;
+  } else if (product.doneQty > 0) {
+    statusHtml = `<span class="item-amount">${formatShoppingQty(product.openQty, product.displayUnit)} offen · ${formatShoppingQty(product.doneQty, product.displayUnit)} erledigt</span>`;
+  } else {
+    statusHtml = `<span class="item-amount">${formatShoppingQty(product.openQty, product.displayUnit)}</span>`;
+  }
+
+  const hasSub = product.sources.length > 0;
+  const main = document.createElement("div");
+  main.className = `shop-item ${product.isDone ? "done" : ""} ${hasSub ? "has-sub" : ""}`.trim();
+  main.innerHTML = `<div class="check ${product.isDone ? "on" : ""}">${product.isDone ? "✓" : ""}</div><span class="item-name">${product.name}</span>${statusHtml}`;
+  main.querySelector(".check").onclick = () => toggleShoppingEntry("product", product.id, null);
+  wrap.appendChild(main);
+
+  product.sources.forEach((source, i) => {
+    const sub = document.createElement("div");
+    sub.className = `shop-subitem ${source.done ? "done" : ""}`;
+    sub.innerHTML = `<div class="check ${source.done ? "on" : ""}">${source.done ? "✓" : ""}</div><span class="item-name">${source.label}</span><span class="item-amount">${formatShoppingQty(source.qty, product.displayUnit)}</span>`;
+    sub.querySelector(".check").onclick = () => toggleShoppingEntry("productSource", product.id, i);
+    wrap.appendChild(sub);
+  });
+
+  return wrap;
+}
+
+function buildDishRow(dish) {
+  const wrap = document.createElement("div");
+  wrap.className = "shop-group";
+
+  const hasSub = dish.ingredients.length > 0;
+  const main = document.createElement("div");
+  main.className = `shop-item ${dish.done ? "done" : ""} ${hasSub ? "has-sub" : ""}`.trim();
+  const statusHtml = dish.done ? `<span class="item-amount" style="color:var(--accent)">Erledigt</span>` : "";
+  main.innerHTML = `<div class="check ${dish.done ? "on" : ""}">${dish.done ? "✓" : ""}</div><span class="item-name">${dish.name}</span>${statusHtml}`;
+  main.querySelector(".check").onclick = () => toggleShoppingEntry("dish", dish.id, null);
+  wrap.appendChild(main);
+
+  dish.ingredients.forEach((ing, i) => {
+    const sub = document.createElement("div");
+    sub.className = `shop-subitem ${ing.done ? "done" : ""}`;
+    sub.innerHTML = `<div class="check ${ing.done ? "on" : ""}">${ing.done ? "✓" : ""}</div><span class="item-name">${ing.name}</span>`;
+    sub.querySelector(".check").onclick = () => toggleShoppingEntry("dishIngredient", dish.id, i);
+    wrap.appendChild(sub);
+  });
+
+  return wrap;
+}
+
+function renderShoppingV2() {
   const container = document.getElementById("shopping-list");
   container.innerHTML = "";
-  if (!shoppingItems.length) {
-    container.innerHTML = `<div class="empty"><span class="empty-icon">🛒</span>Keine Einkaufsliste vorhanden.<br>Erstelle zuerst eine Liste im Plan-Tab.</div>`;
+
+  const products = shoppingItems.filter(i => i.type === "product");
+  const dishes   = shoppingItems.filter(i => i.type === "dish");
+
+  if (!products.length && !dishes.length) {
+    container.innerHTML = `<div class="empty"><span class="empty-icon">🛒</span>Einkaufsliste ist leer.<br>Füge über den 🛒-Button im Plan Zutaten hinzu.</div>`;
     return;
   }
+
   const byCat = new Map();
-  shoppingItems.forEach(item => { if (!byCat.has(item.category)) byCat.set(item.category, []); byCat.get(item.category).push(item); });
+  products.forEach(p => { if (!byCat.has(p.category)) byCat.set(p.category, []); byCat.get(p.category).push(p); });
   byCat.forEach((items, cat) => {
     const h = document.createElement("div"); h.className = "cat-header"; h.textContent = cat;
     container.appendChild(h);
-    items.forEach(item => {
-      const amount = item.amount !== null && item.amount !== undefined ? `${Math.round(item.amount * 10) / 10}${item.unit ? " " + item.unit : ""}` : "";
-      const el = document.createElement("div");
-      el.className = `shop-item ${item.done ? "done" : ""}`;
-      el.innerHTML = `<div class="check ${item.done ? "on" : ""}" onclick="toggleItem(${item.index})">${item.done ? "✓" : ""}</div><span class="item-name">${item.productName}</span><span class="item-amount">${amount}</span>`;
-      container.appendChild(el);
-    });
+    items.forEach(product => container.appendChild(buildProductRow(product)));
   });
+
+  if (dishes.length) {
+    const h = document.createElement("div"); h.className = "cat-header"; h.textContent = "Gerichte";
+    container.appendChild(h);
+    dishes.forEach(dish => container.appendChild(buildDishRow(dish)));
+  }
 }
 
 // ── Pantry ─────────────────────────────────────────────────────
