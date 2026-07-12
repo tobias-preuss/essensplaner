@@ -173,7 +173,10 @@
   }
   .modal-input:focus { border-color: var(--accent); }
   .modal-suggestions { margin-top: 10px; max-height: 220px; overflow-y: auto; }
-  #add-shopping-ingredient-list { max-height: 45vh; overflow-y: auto; }
+  #add-shopping-ingredient-list { max-height: 45vh; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+  #add-shopping-ingredient-list::-webkit-scrollbar { width: 6px; }
+  #add-shopping-ingredient-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  #add-shopping-ingredient-list::-webkit-scrollbar-track { background: transparent; }
   .modal-suggestion-item { padding: 11px 12px; border-radius: var(--radius-sm); cursor: pointer; font-size: 14px; }
   .modal-suggestion-item:active { background: var(--bg); }
   .modal-suggestion-item .tag-line { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
