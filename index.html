@@ -229,6 +229,8 @@
   .shop-group { margin-bottom: 6px; }
   .shop-group .shop-item { margin-bottom: 0; }
   .shop-item.has-sub { border-radius: var(--radius-sm) var(--radius-sm) 0 0; border-bottom: none; }
+  .shop-item.expandable { cursor: pointer; }
+  .shop-item.expanded .chevron { transform: rotate(180deg); }
   .shop-subitem { display: flex; align-items: center; background: var(--surface); border: 1px solid var(--border); border-top: none; padding: 9px 13px 9px 28px; gap: 11px; font-size: 13.5px; color: var(--text-muted); transition: opacity 0.2s; }
   .shop-subitem:last-child { border-radius: 0 0 var(--radius-sm) var(--radius-sm); }
   .shop-subitem .check { width: 18px; height: 18px; font-size: 10px; }
@@ -1302,6 +1304,13 @@ function formatShoppingQty(qty, unit) {
   return `${rounded}${unit ? " " + unit : ""}`;
 }
 
+let expandedShoppingIds = new Set();
+function toggleShoppingExpand(id) {
+  if (expandedShoppingIds.has(id)) expandedShoppingIds.delete(id);
+  else expandedShoppingIds.add(id);
+  renderShoppingV2();
+}
+
 function buildProductRow(product) {
   const wrap = document.createElement("div");
   wrap.className = "shop-group";
@@ -1316,19 +1325,24 @@ function buildProductRow(product) {
   }
 
   const hasSub = product.sources.length > 0;
+  const isExpanded = expandedShoppingIds.has(product.id);
+  const showSub = hasSub && isExpanded;
   const main = document.createElement("div");
-  main.className = `shop-item ${product.isDone ? "done" : ""} ${hasSub ? "has-sub" : ""}`.trim();
-  main.innerHTML = `<div class="check ${product.isDone ? "on" : ""}">${product.isDone ? "✓" : ""}</div><span class="item-name">${product.name}</span>${statusHtml}`;
-  main.querySelector(".check").onclick = () => toggleShoppingEntry("product", product.id, null);
+  main.className = `shop-item ${product.isDone ? "done" : ""} ${hasSub ? "expandable" : ""} ${showSub ? "has-sub" : ""} ${isExpanded ? "expanded" : ""}`.trim();
+  main.innerHTML = `<div class="check ${product.isDone ? "on" : ""}">${product.isDone ? "✓" : ""}</div><span class="item-name">${product.name}</span>${statusHtml}${hasSub ? CHEVRON_SVG : ""}`;
+  main.onclick = () => { if (hasSub) toggleShoppingExpand(product.id); };
+  main.querySelector(".check").onclick = (e) => { e.stopPropagation(); toggleShoppingEntry("product", product.id, null); };
   wrap.appendChild(main);
 
-  product.sources.forEach((source, i) => {
-    const sub = document.createElement("div");
-    sub.className = `shop-subitem ${source.done ? "done" : ""}`;
-    sub.innerHTML = `<div class="check ${source.done ? "on" : ""}">${source.done ? "✓" : ""}</div><span class="item-name">${source.label}</span><span class="item-amount">${formatShoppingQty(source.qty, product.displayUnit)}</span>`;
-    sub.querySelector(".check").onclick = () => toggleShoppingEntry("productSource", product.id, i);
-    wrap.appendChild(sub);
-  });
+  if (showSub) {
+    product.sources.forEach((source, i) => {
+      const sub = document.createElement("div");
+      sub.className = `shop-subitem ${source.done ? "done" : ""}`;
+      sub.innerHTML = `<div class="check ${source.done ? "on" : ""}">${source.done ? "✓" : ""}</div><span class="item-name">${source.label}</span><span class="item-amount">${formatShoppingQty(source.qty, product.displayUnit)}</span>`;
+      sub.querySelector(".check").onclick = () => toggleShoppingEntry("productSource", product.id, i);
+      wrap.appendChild(sub);
+    });
+  }
 
   return wrap;
 }
@@ -1338,20 +1352,25 @@ function buildDishRow(dish) {
   wrap.className = "shop-group";
 
   const hasSub = dish.ingredients.length > 0;
+  const isExpanded = expandedShoppingIds.has(dish.id);
+  const showSub = hasSub && isExpanded;
   const main = document.createElement("div");
-  main.className = `shop-item ${dish.done ? "done" : ""} ${hasSub ? "has-sub" : ""}`.trim();
+  main.className = `shop-item ${dish.done ? "done" : ""} ${hasSub ? "expandable" : ""} ${showSub ? "has-sub" : ""} ${isExpanded ? "expanded" : ""}`.trim();
   const statusHtml = dish.done ? `<span class="item-amount" style="color:var(--accent)">Erledigt</span>` : "";
-  main.innerHTML = `<div class="check ${dish.done ? "on" : ""}">${dish.done ? "✓" : ""}</div><span class="item-name">${dish.name}</span>${statusHtml}`;
-  main.querySelector(".check").onclick = () => toggleShoppingEntry("dish", dish.id, null);
+  main.innerHTML = `<div class="check ${dish.done ? "on" : ""}">${dish.done ? "✓" : ""}</div><span class="item-name">${dish.name}</span>${statusHtml}${hasSub ? CHEVRON_SVG : ""}`;
+  main.onclick = () => { if (hasSub) toggleShoppingExpand(dish.id); };
+  main.querySelector(".check").onclick = (e) => { e.stopPropagation(); toggleShoppingEntry("dish", dish.id, null); };
   wrap.appendChild(main);
 
-  dish.ingredients.forEach((ing, i) => {
-    const sub = document.createElement("div");
-    sub.className = `shop-subitem ${ing.done ? "done" : ""}`;
-    sub.innerHTML = `<div class="check ${ing.done ? "on" : ""}">${ing.done ? "✓" : ""}</div><span class="item-name">${ing.name}</span>`;
-    sub.querySelector(".check").onclick = () => toggleShoppingEntry("dishIngredient", dish.id, i);
-    wrap.appendChild(sub);
-  });
+  if (showSub) {
+    dish.ingredients.forEach((ing, i) => {
+      const sub = document.createElement("div");
+      sub.className = `shop-subitem ${ing.done ? "done" : ""}`;
+      sub.innerHTML = `<div class="check ${ing.done ? "on" : ""}">${ing.done ? "✓" : ""}</div><span class="item-name">${ing.name}</span>`;
+      sub.querySelector(".check").onclick = () => toggleShoppingEntry("dishIngredient", dish.id, i);
+      wrap.appendChild(sub);
+    });
+  }
 
   return wrap;
 }
