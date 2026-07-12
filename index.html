@@ -602,7 +602,7 @@ function openAddToShoppingModal(idx, person, recipeId, portions) {
       name: ing.name,
       unit: ing.unit,
       scaledQty: (ing.amount === null || ing.amount === undefined) ? null : Math.round(ing.amount * portions * 10) / 10,
-      checked: true,
+      checked: !ing.optional,
     })),
   };
 
