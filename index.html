@@ -728,25 +728,52 @@ function renderManualAddSuggestions(query) {
   });
 }
 
-async function submitManualAddModal() {
+let shoppingTempIdCounter = 0;
+function nextShoppingTempId(prefix) { return `temp-${prefix}-${++shoppingTempIdCounter}`; }
+
+function findOpenShoppingProduct(name, category) {
+  const key = `${name.trim().toLowerCase()}::${(category || "").trim().toLowerCase()}`;
+  return shoppingItems.find(i => i.type === "product" && !i.isDone &&
+    `${i.name.trim().toLowerCase()}::${i.category.trim().toLowerCase()}` === key) || null;
+}
+
+// Spiegelt ShoppingListState.addIngredientContribution (gas/Models.js) im Client.
+function addIngredientContributionOptimistic({ name, category, unit, qty, sourceId, label, recipeId }) {
+  let product = findOpenShoppingProduct(name, category);
+  if (!product) {
+    product = {
+      id: nextShoppingTempId("prod"), type: "product", name, unit, category, sources: [],
+      isDone: false, openQty: 0, doneQty: 0, displayUnit: unit === "Stk" ? "Stk" : "",
+    };
+    shoppingItems.push(product);
+  }
+
+  let source = product.sources.find(s => !s.done && (s.sourceId ?? null) === (sourceId ?? null) && s.label === label);
+  if (source) {
+    if (qty !== null && qty !== undefined) source.qty = (source.qty || 0) + qty;
+  } else {
+    source = { sourceId: sourceId ?? null, label, qty: qty ?? null, done: false, recipeId: recipeId ?? null };
+    product.sources.push(source);
+  }
+  recomputeProductDerived(product);
+  return product;
+}
+
+function submitManualAddModal() {
   const name = document.getElementById("manual-add-name").value.trim();
   if (!name) { closeManualAddModal(); return; }
   const category = document.getElementById("manual-add-category").value.trim() || "Sonstiges";
   const qty = manualAddQty > 0 ? manualAddQty : null;
   closeManualAddModal();
 
-  showToast("Füge hinzu...");
-  try {
-    const params = { name, category };
-    if (qty !== null) { params.qty = qty; params.unit = "Stk"; }
-    const data = await apiCall("addManualItem", params);
-    shoppingItems = data.items || [];
-    renderShoppingV2();
-    showSuccess("Hinzugefügt ✓");
-  } catch (err) {
-    showError("Konnte nicht hinzugefügt werden.");
-    console.error(err);
-  }
+  const snapshot = structuredClone(shoppingItems);
+  const unit = qty !== null ? "Stk" : null;
+  addIngredientContributionOptimistic({ name, category, unit, qty, sourceId: null, label: "manuell" });
+  renderShoppingV2();
+
+  const params = { name, category };
+  if (qty !== null) { params.qty = qty; params.unit = "Stk"; }
+  runOptimisticShoppingAction(() => apiCall("addManualItem", params), snapshot);
 }
 
 // ── Einkaufsliste löschen (Popup) ────────────────────────────────
@@ -755,18 +782,28 @@ function closeDeleteShoppingSheet(event) {
   if (event && event.target !== document.getElementById("delete-shopping-sheet")) return;
   document.getElementById("delete-shopping-sheet").classList.remove("open");
 }
-async function submitDeleteShopping(mode) {
+// Spiegelt ShoppingListState.deleteDoneItems/clearAll (gas/Models.js) im Client.
+function applyOptimisticDelete(mode) {
+  if (mode === "all") { shoppingItems = []; return; }
+
+  shoppingItems = shoppingItems.filter(item => item.type === "product" ? !item.isDone : !item.done);
+  shoppingItems.forEach(item => {
+    if (item.type === "product") {
+      item.sources = item.sources.filter(s => !s.done);
+      recomputeProductDerived(item);
+    } else {
+      item.ingredients = item.ingredients.filter(ing => !ing.done);
+      item.done = item.ingredients.length > 0 && item.ingredients.every(i => i.done);
+    }
+  });
+}
+
+function submitDeleteShopping(mode) {
   closeDeleteShoppingSheet();
-  showToast("Lösche...");
-  try {
-    const data = await apiCall("deleteShoppingItems", { mode });
-    shoppingItems = data.items || [];
-    renderShoppingV2();
-    showSuccess("Gelöscht ✓");
-  } catch (err) {
-    showError("Konnte nicht gelöscht werden.");
-    console.error(err);
-  }
+  const snapshot = structuredClone(shoppingItems);
+  applyOptimisticDelete(mode);
+  renderShoppingV2();
+  runOptimisticShoppingAction(() => apiCall("deleteShoppingItems", { mode }), snapshot);
 }
 
 // ── Plan rendern ───────────────────────────────────────────────
@@ -1281,21 +1318,114 @@ async function loadShoppingList() {
   } catch (err) { showError("Einkaufsliste konnte nicht geladen werden."); }
 }
 
-// Kein Optimistic Update: die bidirektionale Verknüpfung (4 Fälle) wird server-seitig
-// aufgelöst, daher einfacher Await-Roundtrip mit autoritativer Server-Antwort.
-async function toggleShoppingEntry(kind, id, index) {
-  showToast("Aktualisiere...");
-  try {
-    const params = { kind, id };
-    if (index !== null && index !== undefined) params.index = index;
-    const data = await apiCall("toggleShoppingEntry", params);
+// ── Optimistic UI für den Einkauf-Tab ───────────────────────────
+// UI wird sofort lokal mutiert + gerendert, der API-Call läuft im Hintergrund
+// (mit Retry) weiter. Scheitert er endgültig, wird auf den Snapshot vor der
+// Mutation zurückgerollt und ein Fehler-Toast gezeigt (analog zu toggleLock()).
+let pendingShoppingActions = [];
+
+function runOptimisticShoppingAction(apiFn, snapshot) {
+  const action = { apiFn, snapshot, retriesLeft: 2, inFlight: false, timer: null };
+  pendingShoppingActions.push(action);
+  attemptShoppingAction(action);
+}
+
+function attemptShoppingAction(action) {
+  action.inFlight = true;
+  action.apiFn().then(data => {
+    pendingShoppingActions = pendingShoppingActions.filter(a => a !== action);
     shoppingItems = data.items || [];
     renderShoppingV2();
-    hideToast();
-  } catch (err) {
-    showError("Konnte nicht aktualisiert werden.");
-    console.error(err);
+  }).catch(err => {
+    action.inFlight = false;
+    action.retriesLeft -= 1;
+    if (action.retriesLeft > 0) {
+      action.timer = setTimeout(() => attemptShoppingAction(action), 1200);
+    } else {
+      pendingShoppingActions = pendingShoppingActions.filter(a => a !== action);
+      shoppingItems = action.snapshot;
+      renderShoppingV2();
+      showError("Änderung konnte nicht gespeichert werden.");
+      console.error(err);
+    }
+  });
+}
+
+// Sicherheitsnetz: beim Minimieren/Schließen der Mini App (beforeunload ist in
+// Mobile-WebViews unzuverlässig) noch offene Aktionen sofort nachsenden, statt
+// auf den Retry-Timer zu warten.
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) return;
+  pendingShoppingActions.forEach(action => {
+    if (action.inFlight) return; // läuft schon, kein doppelter Toggle-Request
+    clearTimeout(action.timer);
+    attemptShoppingAction(action);
+  });
+});
+
+function recomputeProductDerived(product) {
+  product.isDone  = product.sources.length > 0 && product.sources.every(s => s.done);
+  product.openQty = product.sources.filter(s => !s.done).reduce((sum, s) => sum + (s.qty || 0), 0);
+  product.doneQty = product.sources.filter(s => s.done).reduce((sum, s) => sum + (s.qty || 0), 0);
+}
+
+function syncSourceToDish(product, source) {
+  if (!source.sourceId) return;
+  const dish = shoppingItems.find(i => i.type === "dish" && i.id === source.sourceId);
+  if (!dish) return;
+  dish.ingredients.filter(ing => ing.productId === product.id).forEach(ing => { ing.done = source.done; });
+  dish.done = dish.ingredients.length > 0 && dish.ingredients.every(ing => ing.done);
+}
+
+function syncIngredientToProduct(dish, ing) {
+  const product = shoppingItems.find(i => i.type === "product" && i.id === ing.productId);
+  if (!product) return;
+  product.sources.filter(s => s.sourceId === dish.id).forEach(s => { s.done = ing.done; });
+  recomputeProductDerived(product);
+}
+
+// Spiegelt die bidirektionale Abhak-Logik aus ShoppingListState (gas/Models.js,
+// toggleProduct/toggleProductSource/toggleDish/toggleDishIngredient) im Client.
+function applyOptimisticToggle(kind, id, index) {
+  if (kind === "product") {
+    const product = shoppingItems.find(i => i.type === "product" && i.id === id);
+    if (!product) return;
+    const newDone = !product.isDone;
+    product.sources.forEach(source => { source.done = newDone; syncSourceToDish(product, source); });
+    recomputeProductDerived(product);
+  } else if (kind === "productSource") {
+    const product = shoppingItems.find(i => i.type === "product" && i.id === id);
+    if (!product) return;
+    const source = product.sources[index];
+    if (!source) return;
+    source.done = !source.done;
+    syncSourceToDish(product, source);
+    recomputeProductDerived(product);
+  } else if (kind === "dish") {
+    const dish = shoppingItems.find(i => i.type === "dish" && i.id === id);
+    if (!dish) return;
+    const newDone = !dish.done;
+    dish.ingredients.forEach(ing => { ing.done = newDone; syncIngredientToProduct(dish, ing); });
+    dish.done = newDone;
+  } else if (kind === "dishIngredient") {
+    const dish = shoppingItems.find(i => i.type === "dish" && i.id === id);
+    if (!dish) return;
+    const ing = dish.ingredients[index];
+    if (!ing) return;
+    ing.done = !ing.done;
+    syncIngredientToProduct(dish, ing);
+    dish.done = dish.ingredients.length > 0 && dish.ingredients.every(i => i.done);
   }
+}
+
+function toggleShoppingEntry(kind, id, index) {
+  const snapshot = structuredClone(shoppingItems);
+  applyOptimisticToggle(kind, id, index);
+  renderShoppingV2();
+
+  const params = { kind, id };
+  if (index !== null && index !== undefined) params.index = index;
+  runOptimisticShoppingAction(() => apiCall("toggleShoppingEntry", params), snapshot);
 }
 
 function formatShoppingQty(qty, unit) {
