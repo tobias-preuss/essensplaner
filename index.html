@@ -146,6 +146,7 @@
   }
   .icon-btn-sm:active { background: var(--border); }
   .icon-btn-sm:disabled { opacity: 0.3; cursor: not-allowed; }
+  .icon-btn-sm.added { background: var(--accent-bg); }
   .icon-btn-sm.loading svg, .icon-btn-sm.loading { pointer-events: none; }
 
   /* ── Detail (expanded) ───────────────────────────────────── */
@@ -432,6 +433,13 @@ let manualAddQty = 0;
 // Findet das DB-Rezept zu einem Tages-Gericht (für den 🛒-Button).
 // Bei Split-Tagen gibt es keine recipeId pro Seite, nur Freitext -> per Namen matchen
 // (analog zur bisherigen Server-Logik für Split-Zutaten).
+function isRecipeInShoppingList(recipeId) {
+  return shoppingItems.some(item =>
+    item.type === "product" &&
+    (item.sources || []).some(src => !src.done && String(src.recipeId) === String(recipeId))
+  );
+}
+
 function findRecipeForDay(day, person) {
   if (!person) {
     if (!day.recipeId) return null;
@@ -658,6 +666,7 @@ async function submitAddShoppingModal() {
     });
     shoppingItems = data.items || [];
     renderShoppingV2();
+    renderPlan();
     showSuccess("Zur Einkaufsliste hinzugefügt ✓");
   } catch (err) {
     showError("Konnte nicht hinzugefügt werden.");
@@ -891,7 +900,8 @@ function buildMealRow(idx, person, name, day, isLocked, isExpanded, showSplitBut
   let cartBtn = "";
   if (matchedRecipe) {
     const rowPortions = person === "tobi" ? day.portionsTobi : person === "nora" ? day.portionsNora : day.portions;
-    cartBtn = `<button class="icon-btn-sm" onclick="event.stopPropagation(); openAddToShoppingModal(${idx}, ${personParam}, '${matchedRecipe.id}', ${rowPortions})" title="Zur Einkaufsliste">🛒</button>`;
+    const addedClass = isRecipeInShoppingList(matchedRecipe.id) ? " added" : "";
+    cartBtn = `<button class="icon-btn-sm${addedClass}" onclick="event.stopPropagation(); openAddToShoppingModal(${idx}, ${personParam}, '${matchedRecipe.id}', ${rowPortions})" title="Zur Einkaufsliste">🛒</button>`;
   }
 
   return `
@@ -1248,6 +1258,16 @@ async function savePlan() {
   }
 }
 
+// Lädt die Einkaufsliste ohne Toast/Panel-Render, damit die grünen Warenkorb-Icons im
+// Plan-Tab schon vor dem ersten Besuch des Einkauf-Tabs korrekt sind.
+async function preloadShoppingListSilently() {
+  try {
+    const data = await apiCall("getShoppingListV2");
+    shoppingItems = data.items || [];
+    renderPlan();
+  } catch (err) { /* Icons bleiben grau, kein Fehler-Toast nötig für einen Hintergrund-Preload */ }
+}
+
 // ── Shopping V2 (Produkte + Gerichte, bidirektional verknüpft) ─
 async function loadShoppingList() {
   showToast("Lade Einkaufsliste...");
@@ -1401,11 +1421,15 @@ function switchTab(el) {
     if (panel === "plan")     loadPlan();
     if (panel === "shopping") loadShoppingList();
     if (panel === "pantry")   loadPantry();
+  } else if (panel === "plan") {
+    // Warenkorb-Icons können sich durch Aktionen im Einkauf-Tab geändert haben
+    renderPlan();
   }
 }
 
 loaded.plan = true;
 loadPlan();
+preloadShoppingListSilently();
 </script>
 </body>
 </html>
