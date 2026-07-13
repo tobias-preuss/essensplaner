@@ -298,6 +298,17 @@
   </div>
 </div>
 
+<div class="dialog-overlay" id="confirm-delete-entry-dialog">
+  <div class="dialog">
+    <div class="dialog-title">Eintrag löschen?</div>
+    <div class="dialog-body" id="confirm-delete-entry-body"></div>
+    <div class="dialog-actions">
+      <button class="btn btn-secondary" onclick="closeDeleteEntryConfirm()">Abbrechen</button>
+      <button class="btn btn-primary" onclick="confirmDeleteEntry()">Löschen</button>
+    </div>
+  </div>
+</div>
+
 <div class="dialog-overlay" id="confirm-dialog">
   <div class="dialog">
     <div class="dialog-title">Neuen Plan erstellen?</div>
@@ -806,6 +817,46 @@ function submitDeleteShopping(mode) {
   runOptimisticShoppingAction(() => apiCall("deleteShoppingItems", { mode }), snapshot);
 }
 
+// ── Einzeleintrag löschen (Swipe nach links) ────────────────────
+let deleteEntryCtx = null;
+function openDeleteEntryConfirm(kind, id) {
+  const item = shoppingItems.find(i => i.type === kind && i.id === id);
+  if (!item) return;
+  deleteEntryCtx = { kind, id };
+  document.getElementById("confirm-delete-entry-body").textContent = `„${item.name}" aus der Einkaufsliste entfernen?`;
+  document.getElementById("confirm-delete-entry-dialog").classList.add("open");
+}
+function closeDeleteEntryConfirm() {
+  document.getElementById("confirm-delete-entry-dialog").classList.remove("open");
+  deleteEntryCtx = null;
+}
+// Spiegelt ShoppingListState.deleteEntry (gas/Models.js) im Client.
+function applyOptimisticSingleDelete(kind, id) {
+  if (kind === "product") {
+    shoppingItems = shoppingItems.filter(item => !(item.type === "product" && item.id === id));
+    shoppingItems.filter(i => i.type === "dish").forEach(dish => {
+      dish.ingredients = dish.ingredients.filter(ing => ing.productId !== id);
+      dish.done = dish.ingredients.length > 0 && dish.ingredients.every(ing => ing.done);
+    });
+  } else if (kind === "dish") {
+    shoppingItems = shoppingItems.filter(item => !(item.type === "dish" && item.id === id));
+    shoppingItems.filter(i => i.type === "product").forEach(product => {
+      product.sources = product.sources.filter(source => source.sourceId !== id);
+      recomputeProductDerived(product);
+    });
+  }
+}
+function confirmDeleteEntry() {
+  const ctx = deleteEntryCtx;
+  closeDeleteEntryConfirm();
+  if (!ctx) return;
+
+  const snapshot = structuredClone(shoppingItems);
+  applyOptimisticSingleDelete(ctx.kind, ctx.id);
+  renderShoppingV2();
+  runOptimisticShoppingAction(() => apiCall("deleteShoppingEntry", { kind: ctx.kind, id: ctx.id }), snapshot);
+}
+
 // ── Plan rendern ───────────────────────────────────────────────
 function renderPlan() {
   const container = document.getElementById("plan-list");
@@ -1245,6 +1296,25 @@ document.addEventListener("touchend", (e) => {
   swipeStartX = swipeStartY = swipeIdx = null;
 }, { passive: true });
 
+// ── Swipe auf Einkaufsliste: links=löschen (mit Bestätigung), rechts=abhaken ──
+let shopSwipeStartX = null, shopSwipeStartY = null, shopSwipeKind = null, shopSwipeId = null;
+document.addEventListener("touchstart", (e) => {
+  const item = e.target.closest(".shop-item");
+  if (!item || !item.dataset.id) return;
+  shopSwipeStartX = e.touches[0].clientX; shopSwipeStartY = e.touches[0].clientY;
+  shopSwipeKind = item.dataset.kind; shopSwipeId = item.dataset.id;
+}, { passive: true });
+document.addEventListener("touchend", (e) => {
+  if (shopSwipeStartX === null || shopSwipeId === null) return;
+  const dx = e.changedTouches[0].clientX - shopSwipeStartX;
+  const dy = e.changedTouches[0].clientY - shopSwipeStartY;
+  if (Math.abs(dx) > 70 && Math.abs(dy) < 50) {
+    if (dx < 0) openDeleteEntryConfirm(shopSwipeKind, shopSwipeId);
+    else toggleShoppingEntry(shopSwipeKind, shopSwipeId, null);
+  }
+  shopSwipeStartX = shopSwipeStartY = shopSwipeKind = shopSwipeId = null;
+}, { passive: true });
+
 // ── Bottom Sheet: Neu generieren (funktioniert auch gelockt) ────
 function openDaySheet(idx) {
   const day = mealPlan[idx];
@@ -1459,6 +1529,8 @@ function buildProductRow(product) {
   const showSub = hasSub && isExpanded;
   const main = document.createElement("div");
   main.className = `shop-item ${product.isDone ? "done" : ""} ${hasSub ? "expandable" : ""} ${showSub ? "has-sub" : ""} ${isExpanded ? "expanded" : ""}`.trim();
+  main.dataset.kind = "product";
+  main.dataset.id = product.id;
   main.innerHTML = `<div class="check ${product.isDone ? "on" : ""}">${product.isDone ? "✓" : ""}</div><span class="item-name">${product.name}</span>${statusHtml}${hasSub ? CHEVRON_SVG : ""}`;
   main.onclick = () => { if (hasSub) toggleShoppingExpand(product.id); };
   main.querySelector(".check").onclick = (e) => { e.stopPropagation(); toggleShoppingEntry("product", product.id, null); };
@@ -1486,6 +1558,8 @@ function buildDishRow(dish) {
   const showSub = hasSub && isExpanded;
   const main = document.createElement("div");
   main.className = `shop-item ${dish.done ? "done" : ""} ${hasSub ? "expandable" : ""} ${showSub ? "has-sub" : ""} ${isExpanded ? "expanded" : ""}`.trim();
+  main.dataset.kind = "dish";
+  main.dataset.id = dish.id;
   const statusHtml = dish.done ? `<span class="item-amount" style="color:var(--accent)">Erledigt</span>` : "";
   main.innerHTML = `<div class="check ${dish.done ? "on" : ""}">${dish.done ? "✓" : ""}</div><span class="item-name">${dish.name}</span>${statusHtml}${hasSub ? CHEVRON_SVG : ""}`;
   main.onclick = () => { if (hasSub) toggleShoppingExpand(dish.id); };
