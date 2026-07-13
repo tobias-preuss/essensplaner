@@ -195,6 +195,7 @@
   .sheet-btn:active { background: var(--bg); }
   .sheet-btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
   .sheet-btn.cancel  { color: var(--text-muted); text-align: center; border-color: transparent; background: none; }
+  .sheet-btn.active  { border-color: var(--accent); color: var(--accent); font-weight: 700; }
 
   /* ── Confirm Dialog ───────────────────────────────────────── */
   .dialog-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 300; align-items: center; justify-content: center; padding: 24px; }
@@ -280,6 +281,7 @@
   <div class="action-row">
     <button class="btn-sm" onclick="loadShoppingList()">↺</button>
     <button class="btn btn-primary" onclick="openManualAddModal()">+ Manuell hinzufügen</button>
+    <button class="btn-sm" onclick="openSortShoppingSheet()">⇅</button>
     <button class="btn-sm" onclick="openDeleteShoppingSheet()">🗑️</button>
   </div>
   <div id="shopping-list"></div>
@@ -381,6 +383,17 @@
   </div>
 </div>
 
+<!-- Einkaufsliste sortieren -->
+<div class="sheet-overlay" id="sort-shopping-sheet" onclick="closeSortShoppingSheet(event)">
+  <div class="sheet">
+    <div class="sheet-title">Sortierung</div>
+    <button class="sheet-btn" id="sort-opt-category" onclick="setShoppingSortMode('category')">Nach Kategorie</button>
+    <button class="sheet-btn" id="sort-opt-alpha" onclick="setShoppingSortMode('alpha')">Alphabetisch</button>
+    <button class="sheet-btn" id="sort-opt-combined" onclick="setShoppingSortMode('combined')">Kategorie + Alphabetisch</button>
+    <button class="sheet-btn cancel" onclick="closeSortShoppingSheet()">Schließen</button>
+  </div>
+</div>
+
 <!-- Einkaufsliste löschen -->
 <div class="sheet-overlay" id="delete-shopping-sheet" onclick="closeDeleteShoppingSheet(event)">
   <div class="sheet">
@@ -420,6 +433,7 @@ let mealPlan       = [];
 let dateSlots      = [];
 let lockedDays     = new Set();
 let shoppingItems  = [];
+let shoppingSortMode = localStorage.getItem("shoppingSortMode") || "combined"; // "category" | "alpha" | "combined"
 let pantryItems    = [];
 let recipes        = [];
 let expandedIdx    = null;
@@ -763,6 +777,24 @@ function submitManualAddModal() {
   renderShoppingV2();
 
   runOptimisticShoppingAction(() => apiCall("addManualItem", { name, category }), snapshot);
+}
+
+// ── Einkaufsliste sortieren (Popup) ─────────────────────────────
+function openSortShoppingSheet() {
+  ["category", "alpha", "combined"].forEach(mode => {
+    document.getElementById(`sort-opt-${mode}`).classList.toggle("active", mode === shoppingSortMode);
+  });
+  document.getElementById("sort-shopping-sheet").classList.add("open");
+}
+function closeSortShoppingSheet(event) {
+  if (event && event.target !== document.getElementById("sort-shopping-sheet")) return;
+  document.getElementById("sort-shopping-sheet").classList.remove("open");
+}
+function setShoppingSortMode(mode) {
+  shoppingSortMode = mode;
+  localStorage.setItem("shoppingSortMode", mode);
+  closeSortShoppingSheet();
+  renderShoppingV2();
 }
 
 // ── Einkaufsliste löschen (Popup) ────────────────────────────────
@@ -1556,18 +1588,27 @@ function renderShoppingV2() {
     return;
   }
 
-  const byCat = new Map();
-  products.forEach(p => { if (!byCat.has(p.category)) byCat.set(p.category, []); byCat.get(p.category).push(p); });
-  byCat.forEach((items, cat) => {
-    const h = document.createElement("div"); h.className = "cat-header"; h.textContent = cat;
-    container.appendChild(h);
-    items.forEach(product => container.appendChild(buildProductRow(product)));
-  });
+  const byName = (a, b) => a.name.localeCompare(b.name, "de");
+
+  if (shoppingSortMode === "alpha") {
+    products.slice().sort(byName).forEach(product => container.appendChild(buildProductRow(product)));
+  } else {
+    const byCat = new Map();
+    products.forEach(p => { if (!byCat.has(p.category)) byCat.set(p.category, []); byCat.get(p.category).push(p); });
+    const categories = Array.from(byCat.keys()).sort((a, b) => a.localeCompare(b, "de"));
+    categories.forEach(cat => {
+      const items = shoppingSortMode === "combined" ? byCat.get(cat).slice().sort(byName) : byCat.get(cat);
+      const h = document.createElement("div"); h.className = "cat-header"; h.textContent = cat;
+      container.appendChild(h);
+      items.forEach(product => container.appendChild(buildProductRow(product)));
+    });
+  }
 
   if (dishes.length) {
+    const sortedDishes = shoppingSortMode === "category" ? dishes : dishes.slice().sort(byName);
     const h = document.createElement("div"); h.className = "cat-header"; h.textContent = "Gerichte";
     container.appendChild(h);
-    dishes.forEach(dish => container.appendChild(buildDishRow(dish)));
+    sortedDishes.forEach(dish => container.appendChild(buildDishRow(dish)));
   }
 }
 
