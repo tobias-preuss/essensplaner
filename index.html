@@ -239,7 +239,6 @@
 
   .modal-check-row { display: flex; align-items: center; gap: 10px; padding: 9px 2px; cursor: pointer; }
   .modal-check-row .ing-name { flex: 1; font-size: 14px; }
-  .modal-check-row .ing-qty { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
   .checkbox-row { display: flex; align-items: center; gap: 8px; margin-top: 14px; font-size: 13px; color: var(--text); }
   .checkbox-row input { width: 16px; height: 16px; accent-color: var(--accent); }
 
@@ -373,14 +372,6 @@
     <div class="modal-body">
       <input type="text" class="modal-input" id="manual-add-name" placeholder="z.B. Zwiebeln">
       <div class="modal-suggestions" id="manual-add-suggestions"></div>
-      <div class="detail-row" style="padding-top:14px">
-        <span class="detail-hint">Menge (Stk, optional)</span>
-        <div class="stepper">
-          <button class="stepper-btn" onclick="changeManualAddQty(-1)">−</button>
-          <span class="stepper-val" id="manual-add-qty">0</span>
-          <button class="stepper-btn" onclick="changeManualAddQty(1)">+</button>
-        </div>
-      </div>
       <input type="text" class="modal-input" id="manual-add-category" placeholder="Kategorie (z.B. Gemüse)" style="margin-top:12px">
     </div>
     <div class="modal-footer">
@@ -441,7 +432,6 @@ let editModalCtx = null; // { idx, person }
 
 // Add-Shopping-Modal state
 let addShoppingCtx = null; // { idx, person, recipeId, portions, ingredients: [{name, unit, scaledQty, checked}] }
-let manualAddQty = 0;
 
 // Findet das DB-Rezept zu einem Tages-Gericht (für den 🛒-Button).
 // Bei Split-Tagen gibt es keine recipeId pro Seite, nur Freitext -> per Namen matchen
@@ -641,13 +631,11 @@ function renderAddShoppingIngredientList() {
   const box = document.getElementById("add-shopping-ingredient-list");
   box.innerHTML = "";
   addShoppingCtx.ingredients.forEach(ing => {
-    const qtyLabel = ing.scaledQty !== null ? `${ing.scaledQty}${ing.unit ? " " + ing.unit : ""}` : "";
     const row = document.createElement("div");
     row.className = "modal-check-row";
     row.innerHTML = `
       <div class="check ${ing.checked ? "on" : ""}">${ing.checked ? "✓" : ""}</div>
-      <span class="ing-name">${ing.name}</span>
-      <span class="ing-qty">${qtyLabel}</span>`;
+      <span class="ing-name">${ing.name}</span>`;
     row.onclick = () => { ing.checked = !ing.checked; renderAddShoppingIngredientList(); };
     box.appendChild(row);
   });
@@ -689,10 +677,8 @@ async function submitAddShoppingModal() {
 
 // ── Manuell hinzufügen (Popup) ──────────────────────────────────
 function openManualAddModal() {
-  manualAddQty = 0;
   document.getElementById("manual-add-name").value = "";
   document.getElementById("manual-add-category").value = "";
-  document.getElementById("manual-add-qty").textContent = "0";
   document.getElementById("manual-add-suggestions").innerHTML = "";
   document.getElementById("manual-add-modal").classList.add("open");
 
@@ -703,10 +689,6 @@ function openManualAddModal() {
 function closeManualAddModal() { document.getElementById("manual-add-modal").classList.remove("open"); }
 function closeManualAddModalOnOverlay(e) {
   if (e.target === document.getElementById("manual-add-modal")) closeManualAddModal();
-}
-function changeManualAddQty(delta) {
-  manualAddQty = Math.max(0, manualAddQty + delta);
-  document.getElementById("manual-add-qty").textContent = manualAddQty;
 }
 
 // Sammelt alle bekannten Zutatennamen aus der Rezept-DB (dedupliziert) für die Autocomplete.
@@ -774,17 +756,13 @@ function submitManualAddModal() {
   const name = document.getElementById("manual-add-name").value.trim();
   if (!name) { closeManualAddModal(); return; }
   const category = document.getElementById("manual-add-category").value.trim() || "Sonstiges";
-  const qty = manualAddQty > 0 ? manualAddQty : null;
   closeManualAddModal();
 
   const snapshot = structuredClone(shoppingItems);
-  const unit = qty !== null ? "Stk" : null;
-  addIngredientContributionOptimistic({ name, category, unit, qty, sourceId: null, label: "manuell" });
+  addIngredientContributionOptimistic({ name, category, unit: null, qty: null, sourceId: null, label: "manuell" });
   renderShoppingV2();
 
-  const params = { name, category };
-  if (qty !== null) { params.qty = qty; params.unit = "Stk"; }
-  runOptimisticShoppingAction(() => apiCall("addManualItem", params), snapshot);
+  runOptimisticShoppingAction(() => apiCall("addManualItem", { name, category }), snapshot);
 }
 
 // ── Einkaufsliste löschen (Popup) ────────────────────────────────
@@ -1498,12 +1476,6 @@ function toggleShoppingEntry(kind, id, index) {
   runOptimisticShoppingAction(() => apiCall("toggleShoppingEntry", params), snapshot);
 }
 
-function formatShoppingQty(qty, unit) {
-  if (qty === null || qty === undefined) return "";
-  const rounded = Math.round(qty * 10) / 10;
-  return `${rounded}${unit ? " " + unit : ""}`;
-}
-
 let expandedShoppingIds = new Set();
 function toggleShoppingExpand(id) {
   if (expandedShoppingIds.has(id)) expandedShoppingIds.delete(id);
@@ -1515,14 +1487,7 @@ function buildProductRow(product) {
   const wrap = document.createElement("div");
   wrap.className = "shop-group";
 
-  let statusHtml;
-  if (product.isDone) {
-    statusHtml = `<span class="item-amount" style="color:var(--accent)">Erledigt</span>`;
-  } else if (product.doneQty > 0) {
-    statusHtml = `<span class="item-amount">${formatShoppingQty(product.openQty, product.displayUnit)} offen · ${formatShoppingQty(product.doneQty, product.displayUnit)} erledigt</span>`;
-  } else {
-    statusHtml = `<span class="item-amount">${formatShoppingQty(product.openQty, product.displayUnit)}</span>`;
-  }
+  const statusHtml = product.isDone ? `<span class="item-amount" style="color:var(--accent)">Erledigt</span>` : "";
 
   const hasSub = product.sources.length > 0;
   const isExpanded = expandedShoppingIds.has(product.id);
@@ -1540,7 +1505,7 @@ function buildProductRow(product) {
     product.sources.forEach((source, i) => {
       const sub = document.createElement("div");
       sub.className = `shop-subitem ${source.done ? "done" : ""}`;
-      sub.innerHTML = `<div class="check ${source.done ? "on" : ""}">${source.done ? "✓" : ""}</div><span class="item-name">${source.label}</span><span class="item-amount">${formatShoppingQty(source.qty, product.displayUnit)}</span>`;
+      sub.innerHTML = `<div class="check ${source.done ? "on" : ""}">${source.done ? "✓" : ""}</div><span class="item-name">${source.label}</span>`;
       sub.querySelector(".check").onclick = () => toggleShoppingEntry("productSource", product.id, i);
       wrap.appendChild(sub);
     });
