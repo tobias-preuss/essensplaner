@@ -549,11 +549,12 @@ function findRecipeForDay(day, person) {
 
 // ── Rezept-Details-Popup ──────────────────────────────────────────
 // Stückangaben (Einheit "Stk") werden kaufmännisch gerundet (ab .5 aufwärts),
-// andere Einheiten auf 1 Nachkommastelle - konsistent mit scaledQty im 🛒-Popup.
+// Werte über 0 und unter 1 auf 1 aufgerundet; andere Einheiten auf 1 Nachkommastelle
+// - konsistent mit scaledQty im 🛒-Popup.
 function formatRecipeQty(amount, unit, portions) {
   if (amount === null || amount === undefined) return "";
   const scaled = amount * portions;
-  const value = unit === "Stk" ? Math.round(scaled) : Math.round(scaled * 10) / 10;
+  const value = unit === "Stk" ? (scaled > 0 ? Math.max(1, Math.round(scaled)) : 0) : Math.round(scaled * 10) / 10;
   return unit ? `${value} ${unit}` : `${value}`;
 }
 
