@@ -272,7 +272,6 @@
 <div id="panel-plan" class="panel active">
   <div class="action-row">
     <button class="btn btn-primary" onclick="askGeneratePlan()" id="btn-generate">✨ Neuer Plan</button>
-    <button class="btn btn-secondary" onclick="savePlan()" id="btn-save">💾 Plan speichern</button>
   </div>
   <div id="plan-list"></div>
 </div>
@@ -1344,37 +1343,6 @@ function openDaySheet(idx) {
 function closeSheet(event) {
   if (event && event.target !== document.getElementById("day-sheet")) return;
   document.getElementById("day-sheet").classList.remove("open");
-}
-
-// ── Plan Speichern ─────────────────────────────────────────────
-async function savePlan() {
-  const btn = document.getElementById('btn-save');
-  if (btn) btn.disabled = true;
-  showToast('Speichere Plan...');
-  try {
-    const order = mealPlan.map(day => ({
-      recipeId:       day.recipeId,
-      recipeName:     day.recipeName,
-      isCustomName:   day.isCustomName,
-      portions:       day.portions,
-      note:           day.note || '',
-      isSplit:        day.isSplit || false,
-      customNameTobi: day.customNameTobi || '',
-      customNameNora: day.customNameNora || '',
-      portionsTobi:   day.portionsTobi,
-      portionsNora:   day.portionsNora,
-      isLocked:       mealPlan.indexOf(day) >= 0 ? lockedDays.has(mealPlan.indexOf(day)) : false,
-    }));
-    // isLocked korrekt per Index setzen
-    mealPlan.forEach((day, idx) => { order[idx].isLocked = lockedDays.has(idx); });
-    await apiCall('savePlan', { order: JSON.stringify(order) });
-    showSuccess('Plan gespeichert ✓');
-  } catch (err) {
-    showError('Plan konnte nicht gespeichert werden.');
-    console.error(err);
-  } finally {
-    if (btn) btn.disabled = false;
-  }
 }
 
 // Lädt die Einkaufsliste ohne Toast/Panel-Render, damit die grünen Warenkorb-Icons im
