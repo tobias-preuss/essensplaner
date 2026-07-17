@@ -1528,42 +1528,64 @@ async function toggleLock(idx) {
   }
 }
 
-// ── Swipe: links=regenerieren (auch gelockt erlaubt für ganzen Tag), rechts=lock ──
-let swipeStartX = null, swipeStartY = null, swipeIdx = null;
-document.addEventListener("touchstart", (e) => {
-  const wrap = e.target.closest(".day-wrap");
-  if (!wrap || e.target.closest(".drag-handle")) return;
-  swipeStartX = e.touches[0].clientX; swipeStartY = e.touches[0].clientY;
-  swipeIdx = parseInt(wrap.dataset.idx, 10);
-}, { passive: true });
-document.addEventListener("touchend", (e) => {
-  if (swipeStartX === null || swipeIdx === null) return;
-  const dx = e.changedTouches[0].clientX - swipeStartX;
-  const dy = e.changedTouches[0].clientY - swipeStartY;
-  if (Math.abs(dx) > 70 && Math.abs(dy) < 50) {
-    if (dx < 0) openDaySheet(swipeIdx); else toggleLock(swipeIdx);
-  }
-  swipeStartX = swipeStartY = swipeIdx = null;
-}, { passive: true });
+// ── Swipe: generischer Helfer mit Live-Feedback (Zeile folgt dem Finger) ──
+function attachSwipe(selector, { onLeft, onRight, getMeta, excludeSelector }) {
+  let el = null, meta = null, startX = null, startY = null, direction = null;
 
-// ── Swipe auf Einkaufsliste: links=löschen (mit Bestätigung), rechts=abhaken ──
-let shopSwipeStartX = null, shopSwipeStartY = null, shopSwipeKind = null, shopSwipeId = null;
-document.addEventListener("touchstart", (e) => {
-  const item = e.target.closest(".shop-item");
-  if (!item || !item.dataset.id) return;
-  shopSwipeStartX = e.touches[0].clientX; shopSwipeStartY = e.touches[0].clientY;
-  shopSwipeKind = item.dataset.kind; shopSwipeId = item.dataset.id;
-}, { passive: true });
-document.addEventListener("touchend", (e) => {
-  if (shopSwipeStartX === null || shopSwipeId === null) return;
-  const dx = e.changedTouches[0].clientX - shopSwipeStartX;
-  const dy = e.changedTouches[0].clientY - shopSwipeStartY;
-  if (Math.abs(dx) > 70 && Math.abs(dy) < 50) {
-    if (dx < 0) openDeleteEntryConfirm(shopSwipeKind, shopSwipeId);
-    else toggleShoppingEntry(shopSwipeKind, shopSwipeId, null);
-  }
-  shopSwipeStartX = shopSwipeStartY = shopSwipeKind = shopSwipeId = null;
-}, { passive: true });
+  document.addEventListener("touchstart", (e) => {
+    const target = e.target.closest(selector);
+    if (!target || (excludeSelector && e.target.closest(excludeSelector))) return;
+    const m = getMeta(target);
+    if (m === null) return;
+    el = target; meta = m;
+    startX = e.touches[0].clientX; startY = e.touches[0].clientY;
+    direction = null;
+  }, { passive: true });
+
+  document.addEventListener("touchmove", (e) => {
+    if (!el) return;
+    const dx = e.touches[0].clientX - startX;
+    const dy = e.touches[0].clientY - startY;
+    if (direction === null) {
+      if (Math.abs(dx) < 12 && Math.abs(dy) < 12) return;
+      direction = Math.abs(dy) > Math.abs(dx) ? "vertical" : "horizontal";
+      if (direction === "vertical") { el = null; return; }
+    }
+    const clamped = Math.max(-90, Math.min(90, dx));
+    el.style.transition = "none";
+    el.style.transform = `translateX(${clamped}px)`;
+  }, { passive: true });
+
+  document.addEventListener("touchend", (e) => {
+    if (!el) { startX = startY = null; direction = null; return; }
+    const dx = e.changedTouches[0].clientX - startX;
+    const dy = e.changedTouches[0].clientY - startY;
+    const snapEl = el;
+    snapEl.style.transition = "transform 0.2s";
+    snapEl.style.transform = "";
+    setTimeout(() => { snapEl.style.transition = ""; }, 200);
+
+    if (direction === "horizontal" && Math.abs(dx) > 70 && Math.abs(dy) < 50) {
+      if (dx > 0) onRight(meta); else onLeft(meta);
+    }
+    el = null; meta = null; startX = startY = null; direction = null;
+  }, { passive: true });
+}
+
+// Plan-Tab: rechts=Regenerieren-Sheet, links=Sperren (invertiert)
+attachSwipe(".day-wrap", {
+  excludeSelector: ".drag-handle",
+  getMeta: (wrap) => parseInt(wrap.dataset.idx, 10),
+  onRight: (idx) => openDaySheet(idx),
+  onLeft:  (idx) => toggleLock(idx),
+});
+
+// Einkaufsliste: rechts=abhaken, links=löschen (mit Bestätigung) - unverändert
+attachSwipe(".shop-item", {
+  getMeta: (item) => item.dataset.id ? { kind: item.dataset.kind, id: item.dataset.id } : null,
+  onRight: (meta) => toggleShoppingEntry(meta.kind, meta.id, null),
+  onLeft:  (meta) => openDeleteEntryConfirm(meta.kind, meta.id),
+});
 
 // ── Bottom Sheet: Neu generieren (funktioniert auch gelockt) ────
 function openDaySheet(idx) {
