@@ -756,7 +756,8 @@ function openAddToShoppingModal(idx, person, recipeId, portions) {
     ingredients: recipe.ingredients.map(ing => ({
       name: ing.name,
       unit: ing.unit,
-      scaledQty: (ing.amount === null || ing.amount === undefined) ? null : Math.round(ing.amount * portions * 10) / 10,
+      // Kaufmännisch gerundet (ab .5 aufwärts); Werte über 0 und unter 1 werden auf 1 aufgerundet.
+      scaledQty: (ing.amount === null || ing.amount === undefined) ? null : Math.max(1, Math.round(ing.amount * portions)),
       checked: !ing.optional,
       qtyText: "",
     })),
