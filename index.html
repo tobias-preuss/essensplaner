@@ -230,6 +230,7 @@
   .check.on { background: var(--accent); border-color: var(--accent); }
   .item-name { flex: 1; font-size: 15px; }
   .item-amount { font-size: 13px; color: var(--text-muted); font-weight: 500; white-space: nowrap; }
+  .item-qty { font-size: 12.5px; color: var(--text-muted); white-space: nowrap; max-width: 90px; overflow: hidden; text-overflow: ellipsis; }
   .sub-count { font-size: 11px; font-weight: 700; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--bg); color: var(--text-muted); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
   .src-inline { font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 110px; }
   .shop-progress { display: flex; flex-direction: column; gap: 6px; padding: 4px 2px 10px; font-size: 12px; font-weight: 600; color: var(--text-muted); }
@@ -383,10 +384,27 @@
       <input type="text" class="modal-input" id="manual-add-name" placeholder="z.B. Zwiebeln">
       <div class="modal-suggestions" id="manual-add-suggestions"></div>
       <div class="cat-picker" id="manual-add-cat-picker"></div>
+      <input type="text" class="modal-input" id="manual-add-qtytext" placeholder="Menge (optional, z.B. 500 g)" style="margin-top:12px">
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeManualAddModal()">Abbrechen</button>
       <button class="btn btn-primary" onclick="submitManualAddModal()">Hinzufügen</button>
+    </div>
+  </div>
+</div>
+
+<!-- Menge bearbeiten (Stift-Icon) -->
+<div class="modal-overlay" id="qty-edit-modal" onclick="closeQtyEditModalOnOverlay(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">Menge bearbeiten</div>
+    </div>
+    <div class="modal-body">
+      <input type="text" class="modal-input" id="qty-edit-input" placeholder="z.B. 500 g (leer = keine Menge)">
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeQtyEditModal()">Abbrechen</button>
+      <button class="btn btn-primary" onclick="submitQtyEditModal()">Speichern</button>
     </div>
   </div>
 </div>
@@ -732,6 +750,7 @@ function renderCatPicker() {
 
 function openManualAddModal() {
   document.getElementById("manual-add-name").value = "";
+  document.getElementById("manual-add-qtytext").value = "";
   document.getElementById("manual-add-suggestions").innerHTML = "";
   manualAddCategory = "Sonstiges";
   renderCatPicker();
@@ -788,13 +807,13 @@ function findOpenShoppingProduct(name, category) {
 }
 
 // Spiegelt ShoppingListState.addIngredientContribution (gas/Models.js) im Client.
-function addIngredientContributionOptimistic({ name, category, unit, qty, sourceId, label, recipeId }) {
+function addIngredientContributionOptimistic({ name, category, unit, qty, sourceId, label, recipeId, qtyText }) {
   const normalizedCategory = normalizeCategoryClient(category);
   let product = findOpenShoppingProduct(name, normalizedCategory);
   if (!product) {
     product = {
       id: nextShoppingTempId("prod"), type: "product", name, unit, category: normalizedCategory, sources: [],
-      isDone: false, openQty: 0, doneQty: 0, displayUnit: unit === "Stk" ? "Stk" : "",
+      isDone: false, openQty: 0, doneQty: 0, displayUnit: unit === "Stk" ? "Stk" : "", qtyText: "",
     };
     shoppingItems.push(product);
   }
@@ -806,6 +825,9 @@ function addIngredientContributionOptimistic({ name, category, unit, qty, source
     source = { sourceId: sourceId ?? null, label, qty: qty ?? null, done: false, recipeId: recipeId ?? null };
     product.sources.push(source);
   }
+  if (qtyText) {
+    product.qtyText = product.qtyText ? product.qtyText + " + " + qtyText : qtyText;
+  }
   recomputeProductDerived(product);
   return product;
 }
@@ -814,13 +836,45 @@ function submitManualAddModal() {
   const name = document.getElementById("manual-add-name").value.trim();
   if (!name) { closeManualAddModal(); return; }
   const category = manualAddCategory;
+  const qtyText = document.getElementById("manual-add-qtytext").value.trim();
   closeManualAddModal();
 
   const snapshot = structuredClone(shoppingItems);
-  addIngredientContributionOptimistic({ name, category, unit: null, qty: null, sourceId: null, label: "manuell" });
+  addIngredientContributionOptimistic({ name, category, unit: null, qty: null, sourceId: null, label: "manuell", qtyText });
   renderShoppingV2();
 
-  runOptimisticShoppingAction(() => apiCall("addManualItem", { name, category }), snapshot);
+  runOptimisticShoppingAction(() => apiCall("addManualItem", { name, category, qtyText }), snapshot);
+}
+
+// ── Menge bearbeiten (Stift-Icon) ────────────────────────────────
+let qtyEditProductId = null;
+function openQtyEditModal(productId) {
+  const product = shoppingItems.find(i => i.id === productId);
+  if (!product) return;
+  qtyEditProductId = productId;
+  const input = document.getElementById("qty-edit-input");
+  input.value = product.qtyText || "";
+  document.getElementById("qty-edit-modal").classList.add("open");
+  setTimeout(() => input.focus(), 50);
+}
+function closeQtyEditModal() { document.getElementById("qty-edit-modal").classList.remove("open"); }
+function closeQtyEditModalOnOverlay(e) {
+  if (e.target === document.getElementById("qty-edit-modal")) closeQtyEditModal();
+}
+function submitQtyEditModal() {
+  const id = qtyEditProductId;
+  const qtyText = document.getElementById("qty-edit-input").value.trim();
+  closeQtyEditModal();
+  if (!id) return;
+
+  const product = shoppingItems.find(i => i.id === id);
+  if (!product) return;
+
+  const snapshot = structuredClone(shoppingItems);
+  product.qtyText = qtyText;
+  renderShoppingV2();
+
+  runOptimisticShoppingAction(() => apiCall("setProductQtyText", { id, qtyText }), snapshot);
 }
 
 // ── Einkaufsliste sortieren (Popup) ─────────────────────────────
@@ -1539,13 +1593,15 @@ function buildProductRow(product) {
   const showSub = expandable && isExpanded;
   const inlineSrc = product.sources.length === 1 ? `<span class="src-inline">${product.sources[0].label}</span>` : "";
   const badge = expandable ? `<span class="sub-count">${product.sources.length}</span>` : "";
+  const qtyHtml = product.qtyText ? `<span class="item-qty">${product.qtyText}</span>` : "";
   const main = document.createElement("div");
   main.className = `shop-item ${product.isDone ? "done" : ""} ${expandable ? "expandable" : ""} ${showSub ? "has-sub" : ""} ${isExpanded ? "expanded" : ""}`.trim();
   main.dataset.kind = "product";
   main.dataset.id = product.id;
-  main.innerHTML = `<div class="check ${product.isDone ? "on" : ""}">${product.isDone ? "✓" : ""}</div><span class="item-name">${product.name}</span>${inlineSrc}${statusHtml}${badge}${expandable ? CHEVRON_SVG : ""}`;
+  main.innerHTML = `<div class="check ${product.isDone ? "on" : ""}">${product.isDone ? "✓" : ""}</div><span class="item-name">${product.name}</span>${qtyHtml}<button class="icon-btn-sm qty-edit">✏️</button>${inlineSrc}${statusHtml}${badge}${expandable ? CHEVRON_SVG : ""}`;
   main.onclick = () => { if (expandable) toggleShoppingExpand(product.id); };
   main.querySelector(".check").onclick = (e) => { e.stopPropagation(); toggleShoppingEntry("product", product.id, null); };
+  main.querySelector(".qty-edit").onclick = (e) => { e.stopPropagation(); openQtyEditModal(product.id); };
   wrap.appendChild(main);
 
   if (showSub) {
