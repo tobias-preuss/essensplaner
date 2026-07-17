@@ -52,6 +52,7 @@
   .float-toast.success { background: #2A5C37; }
   .float-toast.error   { background: #8B2618; }
   .float-toast .spinner { width: 13px; height: 13px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: spin 0.6s linear infinite; }
+  .float-toast #toast-action { pointer-events: auto; background: none; border: none; color: #6FCF8D; font-weight: 700; font-size: 13px; cursor: pointer; padding: 0; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
   /* ── Panel ────────────────────────────────────────────────── */
@@ -286,6 +287,17 @@
 
   .empty { text-align: center; padding: 48px 24px; color: var(--text-muted); font-size: 14px; line-height: 1.5; }
   .empty .empty-icon { font-size: 36px; margin-bottom: 12px; display: block; }
+
+  /* ── Skeleton-Loading ─────────────────────────────────────── */
+  .skel { position: relative; overflow: hidden; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 7px; }
+  .skel::after {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(120,120,120,0.16), transparent);
+    animation: shimmer 1.3s infinite;
+  }
+  @keyframes shimmer { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+  .skel-day { height: 80px; }
+  .skel-item { height: 46px; border-radius: var(--radius-sm); }
 </style>
 </head>
 <body>
@@ -299,6 +311,7 @@
 <div class="float-toast" id="float-toast">
   <span class="spinner" id="toast-spinner" style="display:none"></span>
   <span id="toast-text"></span>
+  <button id="toast-action" style="display:none" onclick="handleToastAction()">Erneut</button>
 </div>
 
 <div id="panel-plan" class="panel active">
@@ -636,19 +649,41 @@ async function apiCall(action, extraParams = {}) {
 
 // ── Floating Toast (kein Layout-Shift) ──────────────────────────
 let toastTimer = null;
+let toastRetryCallback = null;
 function showToast(msg, type = "loading", autoHideMs = null) {
   const toast = document.getElementById("float-toast");
   toast.className = `float-toast show ${type}`;
   document.getElementById("toast-text").textContent = msg;
   document.getElementById("toast-spinner").style.display = type === "loading" ? "inline-block" : "none";
+  document.getElementById("toast-action").style.display = "none";
+  toastRetryCallback = null;
   clearTimeout(toastTimer);
   if (autoHideMs) toastTimer = setTimeout(() => hideToast(), autoHideMs);
 }
 function hideToast() {
   document.getElementById("float-toast").className = "float-toast";
+  document.getElementById("toast-action").style.display = "none";
+  toastRetryCallback = null;
 }
 function showSuccess(msg) { showToast(msg, "success", 1800); }
 function showError(msg)   { showToast(msg, "error", 2800); }
+
+// Fehler-Toast mit "Erneut"-Button für endgültig gescheiterte optimistische Aktionen.
+function showErrorWithRetry(msg, onRetry) {
+  const toast = document.getElementById("float-toast");
+  toast.className = "float-toast show error";
+  document.getElementById("toast-text").textContent = msg;
+  document.getElementById("toast-spinner").style.display = "none";
+  document.getElementById("toast-action").style.display = "inline-block";
+  toastRetryCallback = onRetry;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => hideToast(), 6000);
+}
+function handleToastAction() {
+  const cb = toastRetryCallback;
+  hideToast();
+  if (cb) cb();
+}
 
 // ── Lock SVG ───────────────────────────────────────────────────
 function lockSvg(locked) {
@@ -676,6 +711,7 @@ function fmtShort(date) { return `${String(date.getDate()).padStart(2,"0")}.${St
 
 // ── Plan laden ─────────────────────────────────────────────────
 async function loadPlan() {
+  if (!mealPlan.length) renderSkeleton("plan-list", 7, "skel-day");
   showToast("Lade Essensplan...");
   try {
     const [planData, recipeData] = await Promise.all([apiCall("getMealPlan"), apiCall("getRecipes")]);
@@ -1107,13 +1143,26 @@ function confirmDeleteEntry() {
   runOptimisticShoppingAction(() => apiCall("deleteShoppingEntry", { kind: ctx.kind, id: ctx.id }), snapshot);
 }
 
+// ── Skeleton-Platzhalter beim ersten Laden ──────────────────────
+function renderSkeleton(containerId, count, variant) {
+  const container = document.getElementById(containerId);
+  container.innerHTML = "";
+  for (let i = 0; i < count; i++) {
+    const el = document.createElement("div");
+    el.className = `skel ${variant}`;
+    container.appendChild(el);
+  }
+}
+
 // ── Plan rendern ───────────────────────────────────────────────
 function renderPlan() {
+  const scrollY = document.scrollingElement.scrollTop;
   const container = document.getElementById("plan-list");
   container.innerHTML = "";
 
   if (!mealPlan.length) {
     container.innerHTML = `<div class="empty"><span class="empty-icon">🍽️</span>Noch kein Plan vorhanden.<br>Tippe auf „Neuer Plan" um zu starten.</div>`;
+    document.scrollingElement.scrollTop = scrollY;
     return;
   }
 
@@ -1140,6 +1189,7 @@ function renderPlan() {
   });
 
   setupSortable(container);
+  document.scrollingElement.scrollTop = scrollY;
 }
 
 // ── Day Card bauen ─────────────────────────────────────────────
@@ -1648,6 +1698,7 @@ async function preloadShoppingListSilently() {
 
 // ── Shopping V2 (Produkte + Gerichte, bidirektional verknüpft) ─
 async function loadShoppingList() {
+  if (!shoppingItems.length) renderSkeleton("shopping-list", 5, "skel-item");
   showToast("Lade Einkaufsliste...");
   try {
     const data = await apiCall("getShoppingListV2");
@@ -1682,9 +1733,14 @@ function attemptShoppingAction(action) {
       action.timer = setTimeout(() => attemptShoppingAction(action), 1200);
     } else {
       pendingShoppingActions = pendingShoppingActions.filter(a => a !== action);
+      const failedState = structuredClone(shoppingItems);
       shoppingItems = action.snapshot;
       renderShoppingV2();
-      showError("Änderung konnte nicht gespeichert werden.");
+      showErrorWithRetry("Änderung konnte nicht gespeichert werden.", () => {
+        shoppingItems = failedState;
+        renderShoppingV2();
+        runOptimisticShoppingAction(action.apiFn, action.snapshot);
+      });
       console.error(err);
     }
   });
@@ -1848,6 +1904,7 @@ function buildDishRow(dish) {
 }
 
 function renderShoppingV2() {
+  const scrollY = document.scrollingElement.scrollTop;
   const container = document.getElementById("shopping-list");
   container.innerHTML = "";
 
@@ -1856,6 +1913,7 @@ function renderShoppingV2() {
 
   if (!products.length && !dishes.length) {
     container.innerHTML = `<div class="empty"><span class="empty-icon">🛒</span>Einkaufsliste ist leer.<br>Füge über den 🛒-Button im Plan Zutaten hinzu.</div>`;
+    document.scrollingElement.scrollTop = scrollY;
     return;
   }
 
@@ -1894,6 +1952,8 @@ function renderShoppingV2() {
     container.appendChild(h);
     sortedDishes.forEach(dish => container.appendChild(buildDishRow(dish)));
   }
+
+  document.scrollingElement.scrollTop = scrollY;
 }
 
 // ── Pantry ─────────────────────────────────────────────────────
