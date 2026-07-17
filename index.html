@@ -432,7 +432,7 @@
     </div>
     <div class="modal-body recipe-detail-body">
       <div class="recipe-detail-section">
-        <div class="recipe-detail-heading">Zutaten</div>
+        <div class="recipe-detail-heading" id="recipe-detail-ingredients-heading">Zutaten</div>
         <div id="recipe-detail-ingredients"></div>
       </div>
       <div class="recipe-detail-section">
@@ -548,7 +548,16 @@ function findRecipeForDay(day, person) {
 }
 
 // ── Rezept-Details-Popup ──────────────────────────────────────────
-function openRecipeDetailModal(recipeId) {
+// Stückangaben (Einheit "Stk") werden kaufmännisch gerundet (ab .5 aufwärts),
+// andere Einheiten auf 1 Nachkommastelle - konsistent mit scaledQty im 🛒-Popup.
+function formatRecipeQty(amount, unit, portions) {
+  if (amount === null || amount === undefined) return "";
+  const scaled = amount * portions;
+  const value = unit === "Stk" ? Math.round(scaled) : Math.round(scaled * 10) / 10;
+  return unit ? `${value} ${unit}` : `${value}`;
+}
+
+function openRecipeDetailModal(recipeId, portions) {
   const recipe = recipes.find(r => String(r.id) === String(recipeId));
   if (!recipe) return;
 
@@ -557,6 +566,9 @@ function openRecipeDetailModal(recipeId) {
   if (recipe.prepTimeMinutes) metaParts.push(`${recipe.prepTimeMinutes} min`);
   if (recipe.effort) metaParts.push(recipe.effort);
   document.getElementById("recipe-detail-meta").textContent = metaParts.join(" · ");
+
+  document.getElementById("recipe-detail-ingredients-heading").textContent =
+    `Zutaten · Menge für ${portions} ${portions === 1 ? "Portion" : "Portionen"}`;
 
   const ingredientsBox = document.getElementById("recipe-detail-ingredients");
   ingredientsBox.innerHTML = "";
@@ -567,7 +579,7 @@ function openRecipeDetailModal(recipeId) {
     nameSpan.textContent = ing.name;
     const qtySpan = document.createElement("span");
     qtySpan.className = "qty";
-    qtySpan.textContent = (ing.amount === null || ing.amount === undefined) ? "" : `${ing.amount}${ing.unit ? " " + ing.unit : ""}`;
+    qtySpan.textContent = formatRecipeQty(ing.amount, ing.unit, portions);
     row.appendChild(nameSpan);
     row.appendChild(qtySpan);
     ingredientsBox.appendChild(row);
@@ -1220,8 +1232,8 @@ function buildDetailContent(day, idx) {
   if (day.isSplit) {
     const recipeTobi = findRecipeForDay(day, "tobi");
     const recipeNora = findRecipeForDay(day, "nora");
-    const btnTobi = recipeTobi ? `<button class="pill-btn" onclick="event.stopPropagation(); openRecipeDetailModal('${recipeTobi.id}')">📖 Rezept Tobi</button>` : "";
-    const btnNora = recipeNora ? `<button class="pill-btn" onclick="event.stopPropagation(); openRecipeDetailModal('${recipeNora.id}')">📖 Rezept Nora</button>` : "";
+    const btnTobi = recipeTobi ? `<button class="pill-btn" onclick="event.stopPropagation(); openRecipeDetailModal('${recipeTobi.id}', ${day.portionsTobi})">📖 Rezept Tobi</button>` : "";
+    const btnNora = recipeNora ? `<button class="pill-btn" onclick="event.stopPropagation(); openRecipeDetailModal('${recipeNora.id}', ${day.portionsNora})">📖 Rezept Nora</button>` : "";
     return `
       <div class="detail-row">
         <span class="detail-hint">Portionen Tobi</span>
@@ -1244,7 +1256,7 @@ function buildDetailContent(day, idx) {
   }
 
   const recipe = findRecipeForDay(day, null);
-  const recipeBtn = recipe ? `<div class="detail-row"><button class="pill-btn" onclick="event.stopPropagation(); openRecipeDetailModal('${recipe.id}')">📖 Rezept anzeigen</button></div>` : "";
+  const recipeBtn = recipe ? `<div class="detail-row"><button class="pill-btn" onclick="event.stopPropagation(); openRecipeDetailModal('${recipe.id}', ${day.portions})">📖 Rezept anzeigen</button></div>` : "";
 
   return `
     <div class="detail-row">
