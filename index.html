@@ -250,6 +250,8 @@
 
   .modal-check-row { display: flex; align-items: center; gap: 10px; padding: 9px 2px; cursor: pointer; }
   .modal-check-row .ing-name { flex: 1; font-size: 14px; }
+  .qty-input { width: 76px; font-size: 12.5px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 7px; font-family: inherit; outline: none; flex-shrink: 0; }
+  .qty-input:focus { border-color: var(--accent); }
   .checkbox-row { display: flex; align-items: center; gap: 8px; margin-top: 14px; font-size: 13px; color: var(--text); }
   .checkbox-row input { width: 16px; height: 16px; accent-color: var(--accent); }
 
@@ -671,6 +673,7 @@ function openAddToShoppingModal(idx, person, recipeId, portions) {
       unit: ing.unit,
       scaledQty: (ing.amount === null || ing.amount === undefined) ? null : Math.round(ing.amount * portions * 10) / 10,
       checked: !ing.optional,
+      qtyText: "",
     })),
   };
 
@@ -692,8 +695,13 @@ function renderAddShoppingIngredientList() {
     row.className = "modal-check-row";
     row.innerHTML = `
       <div class="check ${ing.checked ? "on" : ""}">${ing.checked ? "✓" : ""}</div>
-      <span class="ing-name">${ing.name}</span>`;
+      <span class="ing-name">${ing.name}</span>
+      <input type="text" class="qty-input" placeholder="Menge">`;
     row.onclick = () => { ing.checked = !ing.checked; renderAddShoppingIngredientList(); };
+    const qtyInput = row.querySelector(".qty-input");
+    qtyInput.value = ing.qtyText;
+    qtyInput.onclick = e => e.stopPropagation();
+    qtyInput.oninput = () => { ing.qtyText = qtyInput.value; };
     box.appendChild(row);
   });
 }
@@ -711,6 +719,8 @@ async function submitAddShoppingModal() {
   if (!ctx) return;
   const selectedNames = ctx.ingredients.filter(ing => ing.checked).map(ing => ing.name);
   const addDishEntry  = document.getElementById("add-shopping-dish-checkbox").checked;
+  const qtyTexts = {};
+  ctx.ingredients.forEach(ing => { if (ing.checked && ing.qtyText.trim()) qtyTexts[ing.name] = ing.qtyText.trim(); });
   closeAddShoppingModal();
   if (!selectedNames.length) return;
 
@@ -721,6 +731,7 @@ async function submitAddShoppingModal() {
       portions:             ctx.portions,
       selectedIngredients: JSON.stringify(selectedNames),
       addDishEntry:         addDishEntry ? "true" : "false",
+      ...(Object.keys(qtyTexts).length ? { qtyTexts: JSON.stringify(qtyTexts) } : {}),
     });
     shoppingItems = data.items || [];
     renderShoppingV2();
@@ -1598,7 +1609,7 @@ function buildProductRow(product) {
   main.className = `shop-item ${product.isDone ? "done" : ""} ${expandable ? "expandable" : ""} ${showSub ? "has-sub" : ""} ${isExpanded ? "expanded" : ""}`.trim();
   main.dataset.kind = "product";
   main.dataset.id = product.id;
-  main.innerHTML = `<div class="check ${product.isDone ? "on" : ""}">${product.isDone ? "✓" : ""}</div><span class="item-name">${product.name}</span>${qtyHtml}<button class="icon-btn-sm qty-edit">✏️</button>${inlineSrc}${statusHtml}${badge}${expandable ? CHEVRON_SVG : ""}`;
+  main.innerHTML = `<div class="check ${product.isDone ? "on" : ""}">${product.isDone ? "✓" : ""}</div><span class="item-name">${product.name}</span>${inlineSrc}<button class="icon-btn-sm qty-edit">✏️</button>${qtyHtml}${statusHtml}${badge}${expandable ? CHEVRON_SVG : ""}`;
   main.onclick = () => { if (expandable) toggleShoppingExpand(product.id); };
   main.querySelector(".check").onclick = (e) => { e.stopPropagation(); toggleShoppingEntry("product", product.id, null); };
   main.querySelector(".qty-edit").onclick = (e) => { e.stopPropagation(); openQtyEditModal(product.id); };
