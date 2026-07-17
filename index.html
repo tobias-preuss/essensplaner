@@ -824,7 +824,7 @@ function addIngredientContributionOptimistic({ name, category, unit, qty, source
   if (!product) {
     product = {
       id: nextShoppingTempId("prod"), type: "product", name, unit, category: normalizedCategory, sources: [],
-      isDone: false, openQty: 0, doneQty: 0, displayUnit: unit === "Stk" ? "Stk" : "", qtyText: "",
+      isDone: false, openQty: 0, doneQty: 0, openQtyText: "", displayUnit: unit === "Stk" ? "Stk" : "",
     };
     shoppingItems.push(product);
   }
@@ -833,11 +833,11 @@ function addIngredientContributionOptimistic({ name, category, unit, qty, source
   if (source) {
     if (qty !== null && qty !== undefined) source.qty = (source.qty || 0) + qty;
   } else {
-    source = { sourceId: sourceId ?? null, label, qty: qty ?? null, done: false, recipeId: recipeId ?? null };
+    source = { sourceId: sourceId ?? null, label, qty: qty ?? null, done: false, recipeId: recipeId ?? null, qtyText: "" };
     product.sources.push(source);
   }
   if (qtyText) {
-    product.qtyText = product.qtyText ? product.qtyText + " + " + qtyText : qtyText;
+    source.qtyText = source.qtyText ? source.qtyText + " + " + qtyText : qtyText;
   }
   recomputeProductDerived(product);
   return product;
@@ -859,12 +859,15 @@ function submitManualAddModal() {
 
 // ── Menge bearbeiten (Stift-Icon) ────────────────────────────────
 let qtyEditProductId = null;
-function openQtyEditModal(productId) {
+let qtyEditSourceIndex = null;
+function openQtyEditModal(productId, sourceIndex) {
   const product = shoppingItems.find(i => i.id === productId);
-  if (!product) return;
+  const source = product && product.sources[sourceIndex];
+  if (!source) return;
   qtyEditProductId = productId;
+  qtyEditSourceIndex = sourceIndex;
   const input = document.getElementById("qty-edit-input");
-  input.value = product.qtyText || "";
+  input.value = source.qtyText || "";
   document.getElementById("qty-edit-modal").classList.add("open");
   setTimeout(() => input.focus(), 50);
 }
@@ -874,18 +877,21 @@ function closeQtyEditModalOnOverlay(e) {
 }
 function submitQtyEditModal() {
   const id = qtyEditProductId;
+  const sourceIndex = qtyEditSourceIndex;
   const qtyText = document.getElementById("qty-edit-input").value.trim();
   closeQtyEditModal();
-  if (!id) return;
+  if (!id || sourceIndex === null) return;
 
   const product = shoppingItems.find(i => i.id === id);
-  if (!product) return;
+  const source = product && product.sources[sourceIndex];
+  if (!source) return;
 
   const snapshot = structuredClone(shoppingItems);
-  product.qtyText = qtyText;
+  source.qtyText = qtyText;
+  recomputeProductDerived(product);
   renderShoppingV2();
 
-  runOptimisticShoppingAction(() => apiCall("setProductQtyText", { id, qtyText }), snapshot);
+  runOptimisticShoppingAction(() => apiCall("setSourceQtyText", { id, sourceIndex, qtyText }), snapshot);
 }
 
 // ── Einkaufsliste sortieren (Popup) ─────────────────────────────
@@ -1525,6 +1531,7 @@ function recomputeProductDerived(product) {
   product.isDone  = product.sources.length > 0 && product.sources.every(s => s.done);
   product.openQty = product.sources.filter(s => !s.done).reduce((sum, s) => sum + (s.qty || 0), 0);
   product.doneQty = product.sources.filter(s => s.done).reduce((sum, s) => sum + (s.qty || 0), 0);
+  product.openQtyText = product.sources.filter(s => !s.done && s.qtyText).map(s => s.qtyText).join(" + ");
 }
 
 function syncSourceToDish(product, source) {
@@ -1600,27 +1607,33 @@ function buildProductRow(product) {
   const statusHtml = product.isDone ? `<span class="item-amount" style="color:var(--accent)">Erledigt</span>` : "";
 
   const expandable = product.sources.length > 1;
+  const singleSource = product.sources.length === 1;
   const isExpanded = expandedShoppingIds.has(product.id);
   const showSub = expandable && isExpanded;
-  const inlineSrc = product.sources.length === 1 ? `<span class="src-inline">${product.sources[0].label}</span>` : "";
+  const inlineSrc = singleSource ? `<span class="src-inline">${product.sources[0].label}</span>` : "";
   const badge = expandable ? `<span class="sub-count">${product.sources.length}</span>` : "";
-  const qtyHtml = product.qtyText ? `<span class="item-qty">${product.qtyText}</span>` : "";
+  const qtyHtml = product.openQtyText ? `<span class="item-qty">${product.openQtyText}</span>` : "";
+  const pencilHtml = singleSource ? `<button class="icon-btn-sm qty-edit">✏️</button>` : "";
   const main = document.createElement("div");
   main.className = `shop-item ${product.isDone ? "done" : ""} ${expandable ? "expandable" : ""} ${showSub ? "has-sub" : ""} ${isExpanded ? "expanded" : ""}`.trim();
   main.dataset.kind = "product";
   main.dataset.id = product.id;
-  main.innerHTML = `<div class="check ${product.isDone ? "on" : ""}">${product.isDone ? "✓" : ""}</div><span class="item-name">${product.name}</span>${inlineSrc}<button class="icon-btn-sm qty-edit">✏️</button>${qtyHtml}${statusHtml}${badge}${expandable ? CHEVRON_SVG : ""}`;
+  main.innerHTML = `<div class="check ${product.isDone ? "on" : ""}">${product.isDone ? "✓" : ""}</div><span class="item-name">${product.name}</span>${inlineSrc}${pencilHtml}${qtyHtml}${statusHtml}${badge}${expandable ? CHEVRON_SVG : ""}`;
   main.onclick = () => { if (expandable) toggleShoppingExpand(product.id); };
   main.querySelector(".check").onclick = (e) => { e.stopPropagation(); toggleShoppingEntry("product", product.id, null); };
-  main.querySelector(".qty-edit").onclick = (e) => { e.stopPropagation(); openQtyEditModal(product.id); };
+  if (singleSource) {
+    main.querySelector(".qty-edit").onclick = (e) => { e.stopPropagation(); openQtyEditModal(product.id, 0); };
+  }
   wrap.appendChild(main);
 
   if (showSub) {
     product.sources.forEach((source, i) => {
       const sub = document.createElement("div");
       sub.className = `shop-subitem ${source.done ? "done" : ""}`;
-      sub.innerHTML = `<div class="check ${source.done ? "on" : ""}">${source.done ? "✓" : ""}</div><span class="item-name">${source.label}</span>`;
+      const subQtyHtml = source.qtyText ? `<span class="item-qty">${source.qtyText}</span>` : "";
+      sub.innerHTML = `<div class="check ${source.done ? "on" : ""}">${source.done ? "✓" : ""}</div><span class="item-name">${source.label}</span><button class="icon-btn-sm qty-edit">✏️</button>${subQtyHtml}`;
       sub.querySelector(".check").onclick = () => toggleShoppingEntry("productSource", product.id, i);
+      sub.querySelector(".qty-edit").onclick = (e) => { e.stopPropagation(); openQtyEditModal(product.id, i); };
       wrap.appendChild(sub);
     });
   }
