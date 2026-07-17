@@ -222,13 +222,19 @@
 
   /* ── Shopping & Pantry ───────────────────────────────────────── */
   .cat-header { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-muted); padding: 14px 2px 6px; }
-  .shop-item { display: flex; align-items: center; background: var(--surface); border-radius: var(--radius-sm); border: 1px solid var(--border); padding: 11px 13px; margin-bottom: 6px; gap: 11px; transition: opacity 0.2s; }
-  .shop-item.done { opacity: 0.38; }
-  .shop-item.done .item-name { text-decoration: line-through; }
-  .check { width: 24px; height: 24px; border-radius: 50%; border: 1.5px solid var(--border); flex-shrink: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 13px; color: white; transition: background 0.15s, border-color 0.15s; }
+  .shop-item { display: flex; align-items: center; background: var(--surface); border-radius: var(--radius-sm); border: 1px solid var(--border); padding: 11px 13px; margin-bottom: 6px; gap: 11px; transition: opacity 0.2s, background 0.2s, border-color 0.2s; }
+  .shop-item.done { opacity: 0.8; background: var(--accent-bg); border-color: rgba(61,127,79,0.3); }
+  .shop-item.done .item-name { text-decoration: line-through; color: var(--accent-text); }
+  .shop-item.done .check { width: 28px; height: 28px; font-size: 16px; }
+  .check { width: 24px; height: 24px; border-radius: 50%; border: 1.5px solid var(--border); flex-shrink: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 13px; color: white; transition: background 0.15s, border-color 0.15s, width 0.15s, height 0.15s; }
   .check.on { background: var(--accent); border-color: var(--accent); }
   .item-name { flex: 1; font-size: 15px; }
   .item-amount { font-size: 13px; color: var(--text-muted); font-weight: 500; white-space: nowrap; }
+  .sub-count { font-size: 11px; font-weight: 700; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--bg); color: var(--text-muted); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .src-inline { font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 110px; }
+  .shop-progress { display: flex; flex-direction: column; gap: 6px; padding: 4px 2px 10px; font-size: 12px; font-weight: 600; color: var(--text-muted); }
+  .shop-progress-bar { height: 4px; border-radius: 2px; background: var(--border); overflow: hidden; }
+  .shop-progress-bar > div { height: 100%; background: var(--accent); border-radius: 2px; transition: width 0.25s; }
 
   .shop-group { margin-bottom: 6px; }
   .shop-group .shop-item { margin-bottom: 0; }
@@ -1528,15 +1534,17 @@ function buildProductRow(product) {
 
   const statusHtml = product.isDone ? `<span class="item-amount" style="color:var(--accent)">Erledigt</span>` : "";
 
-  const hasSub = product.sources.length > 0;
+  const expandable = product.sources.length > 1;
   const isExpanded = expandedShoppingIds.has(product.id);
-  const showSub = hasSub && isExpanded;
+  const showSub = expandable && isExpanded;
+  const inlineSrc = product.sources.length === 1 ? `<span class="src-inline">${product.sources[0].label}</span>` : "";
+  const badge = expandable ? `<span class="sub-count">${product.sources.length}</span>` : "";
   const main = document.createElement("div");
-  main.className = `shop-item ${product.isDone ? "done" : ""} ${hasSub ? "expandable" : ""} ${showSub ? "has-sub" : ""} ${isExpanded ? "expanded" : ""}`.trim();
+  main.className = `shop-item ${product.isDone ? "done" : ""} ${expandable ? "expandable" : ""} ${showSub ? "has-sub" : ""} ${isExpanded ? "expanded" : ""}`.trim();
   main.dataset.kind = "product";
   main.dataset.id = product.id;
-  main.innerHTML = `<div class="check ${product.isDone ? "on" : ""}">${product.isDone ? "✓" : ""}</div><span class="item-name">${product.name}</span>${statusHtml}${hasSub ? CHEVRON_SVG : ""}`;
-  main.onclick = () => { if (hasSub) toggleShoppingExpand(product.id); };
+  main.innerHTML = `<div class="check ${product.isDone ? "on" : ""}">${product.isDone ? "✓" : ""}</div><span class="item-name">${product.name}</span>${inlineSrc}${statusHtml}${badge}${expandable ? CHEVRON_SVG : ""}`;
+  main.onclick = () => { if (expandable) toggleShoppingExpand(product.id); };
   main.querySelector(".check").onclick = (e) => { e.stopPropagation(); toggleShoppingEntry("product", product.id, null); };
   wrap.appendChild(main);
 
@@ -1560,12 +1568,13 @@ function buildDishRow(dish) {
   const hasSub = dish.ingredients.length > 0;
   const isExpanded = expandedShoppingIds.has(dish.id);
   const showSub = hasSub && isExpanded;
+  const badge = dish.ingredients.length > 1 ? `<span class="sub-count">${dish.ingredients.length}</span>` : "";
   const main = document.createElement("div");
   main.className = `shop-item ${dish.done ? "done" : ""} ${hasSub ? "expandable" : ""} ${showSub ? "has-sub" : ""} ${isExpanded ? "expanded" : ""}`.trim();
   main.dataset.kind = "dish";
   main.dataset.id = dish.id;
   const statusHtml = dish.done ? `<span class="item-amount" style="color:var(--accent)">Erledigt</span>` : "";
-  main.innerHTML = `<div class="check ${dish.done ? "on" : ""}">${dish.done ? "✓" : ""}</div><span class="item-name">${dish.name}</span>${statusHtml}${hasSub ? CHEVRON_SVG : ""}`;
+  main.innerHTML = `<div class="check ${dish.done ? "on" : ""}">${dish.done ? "✓" : ""}</div><span class="item-name">${dish.name}</span>${statusHtml}${badge}${hasSub ? CHEVRON_SVG : ""}`;
   main.onclick = () => { if (hasSub) toggleShoppingExpand(dish.id); };
   main.querySelector(".check").onclick = (e) => { e.stopPropagation(); toggleShoppingEntry("dish", dish.id, null); };
   wrap.appendChild(main);
@@ -1593,6 +1602,15 @@ function renderShoppingV2() {
   if (!products.length && !dishes.length) {
     container.innerHTML = `<div class="empty"><span class="empty-icon">🛒</span>Einkaufsliste ist leer.<br>Füge über den 🛒-Button im Plan Zutaten hinzu.</div>`;
     return;
+  }
+
+  if (products.length) {
+    const doneCount = products.filter(p => p.isDone).length;
+    const pct = Math.round((doneCount / products.length) * 100);
+    const progress = document.createElement("div");
+    progress.className = "shop-progress";
+    progress.innerHTML = `<span>${doneCount} von ${products.length} erledigt</span><div class="shop-progress-bar"><div style="width:${pct}%"></div></div>`;
+    container.appendChild(progress);
   }
 
   const byName = (a, b) => a.name.localeCompare(b.name, "de");
