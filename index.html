@@ -184,6 +184,9 @@
   .modal-empty-hint { font-size: 12px; color: var(--text-muted); padding: 8px 2px; }
   .modal-footer { display: flex; gap: 8px; padding: 14px 18px 18px; }
   .modal-footer .btn { flex: 1; }
+  .cat-picker { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  .cat-chip { font-size: 12.5px; font-weight: 600; padding: 7px 12px; border-radius: 999px; border: 1.5px solid var(--border); background: var(--surface); color: var(--text-muted); cursor: pointer; }
+  .cat-chip.active { border-color: var(--accent); background: var(--accent); color: #fff; }
 
   /* ── Bottom Sheet ─────────────────────────────────────────── */
   .sheet-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 200; align-items: flex-end; }
@@ -373,7 +376,7 @@
     <div class="modal-body">
       <input type="text" class="modal-input" id="manual-add-name" placeholder="z.B. Zwiebeln">
       <div class="modal-suggestions" id="manual-add-suggestions"></div>
-      <input type="text" class="modal-input" id="manual-add-category" placeholder="Kategorie (z.B. Gemüse)" style="margin-top:12px">
+      <div class="cat-picker" id="manual-add-cat-picker"></div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeManualAddModal()">Abbrechen</button>
@@ -425,6 +428,23 @@ function emojiForTags(tags) {
   if (!tags || !tags.length) return "🍽️";
   const first = tags[0].toLowerCase();
   return TAG_EMOJI[first] || "🍽️";
+}
+
+// Feste Einkaufslisten-Kategorien — Spiegel von gas/Models.js (SHOPPING_CATEGORIES/normalizeCategory).
+const FIXED_CATEGORIES = ["Obst & Gemüse", "Fleisch & Fisch", "Kühlregal", "Trockenwaren", "Tiefkühl", "Getränke", "Sonstiges"];
+const CATEGORY_ALIASES = {
+  "gemüse": "Obst & Gemüse", "obst": "Obst & Gemüse", "obst und gemüse": "Obst & Gemüse", "obst & gemüse": "Obst & Gemüse", "salat": "Obst & Gemüse", "kräuter": "Obst & Gemüse",
+  "fleisch": "Fleisch & Fisch", "fisch": "Fleisch & Fisch", "wurst": "Fleisch & Fisch", "wurstwaren": "Fleisch & Fisch",
+  "milchprodukte": "Kühlregal", "molkerei": "Kühlregal", "käse": "Kühlregal", "kühlregal": "Kühlregal", "eier": "Kühlregal",
+  "konserven": "Trockenwaren", "gewürze": "Trockenwaren", "backzutaten": "Trockenwaren", "trockenwaren": "Trockenwaren", "nudeln": "Trockenwaren", "reis": "Trockenwaren", "getreide": "Trockenwaren",
+  "tiefkühl": "Tiefkühl", "tiefkühlkost": "Tiefkühl", "tk": "Tiefkühl",
+  "getränke": "Getränke",
+};
+function normalizeCategoryClient(raw) {
+  const key = String(raw || "").trim().toLowerCase();
+  if (!key) return "Sonstiges";
+  const exact = FIXED_CATEGORIES.find(c => c.toLowerCase() === key);
+  return exact || CATEGORY_ALIASES[key] || "Sonstiges";
 }
 
 // ── State ──────────────────────────────────────────────────────
@@ -689,10 +709,26 @@ async function submitAddShoppingModal() {
 }
 
 // ── Manuell hinzufügen (Popup) ──────────────────────────────────
+let manualAddCategory = "Sonstiges";
+
+function renderCatPicker() {
+  const box = document.getElementById("manual-add-cat-picker");
+  box.innerHTML = "";
+  FIXED_CATEGORIES.forEach(cat => {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "cat-chip" + (cat === manualAddCategory ? " active" : "");
+    chip.textContent = cat;
+    chip.onclick = () => { manualAddCategory = cat; renderCatPicker(); };
+    box.appendChild(chip);
+  });
+}
+
 function openManualAddModal() {
   document.getElementById("manual-add-name").value = "";
-  document.getElementById("manual-add-category").value = "";
   document.getElementById("manual-add-suggestions").innerHTML = "";
+  manualAddCategory = "Sonstiges";
+  renderCatPicker();
   document.getElementById("manual-add-modal").classList.add("open");
 
   const input = document.getElementById("manual-add-name");
@@ -722,12 +758,14 @@ function renderManualAddSuggestions(query) {
     .filter(([name]) => name.toLowerCase().includes(query.toLowerCase()))
     .slice(0, 6);
   matches.forEach(([name, category]) => {
+    const normalized = normalizeCategoryClient(category);
     const item = document.createElement("div");
     item.className = "modal-suggestion-item";
-    item.innerHTML = `${name}<div class="tag-line">${category}</div>`;
+    item.innerHTML = `${name}<div class="tag-line">${normalized}</div>`;
     item.onclick = () => {
       document.getElementById("manual-add-name").value = name;
-      document.getElementById("manual-add-category").value = category;
+      manualAddCategory = normalized;
+      renderCatPicker();
       box.innerHTML = "";
     };
     box.appendChild(item);
@@ -738,17 +776,18 @@ let shoppingTempIdCounter = 0;
 function nextShoppingTempId(prefix) { return `temp-${prefix}-${++shoppingTempIdCounter}`; }
 
 function findOpenShoppingProduct(name, category) {
-  const key = `${name.trim().toLowerCase()}::${(category || "").trim().toLowerCase()}`;
+  const key = `${name.trim().toLowerCase()}::${normalizeCategoryClient(category).toLowerCase()}`;
   return shoppingItems.find(i => i.type === "product" && !i.isDone &&
     `${i.name.trim().toLowerCase()}::${i.category.trim().toLowerCase()}` === key) || null;
 }
 
 // Spiegelt ShoppingListState.addIngredientContribution (gas/Models.js) im Client.
 function addIngredientContributionOptimistic({ name, category, unit, qty, sourceId, label, recipeId }) {
-  let product = findOpenShoppingProduct(name, category);
+  const normalizedCategory = normalizeCategoryClient(category);
+  let product = findOpenShoppingProduct(name, normalizedCategory);
   if (!product) {
     product = {
-      id: nextShoppingTempId("prod"), type: "product", name, unit, category, sources: [],
+      id: nextShoppingTempId("prod"), type: "product", name, unit, category: normalizedCategory, sources: [],
       isDone: false, openQty: 0, doneQty: 0, displayUnit: unit === "Stk" ? "Stk" : "",
     };
     shoppingItems.push(product);
@@ -768,7 +807,7 @@ function addIngredientContributionOptimistic({ name, category, unit, qty, source
 function submitManualAddModal() {
   const name = document.getElementById("manual-add-name").value.trim();
   if (!name) { closeManualAddModal(); return; }
-  const category = document.getElementById("manual-add-category").value.trim() || "Sonstiges";
+  const category = manualAddCategory;
   closeManualAddModal();
 
   const snapshot = structuredClone(shoppingItems);
@@ -1562,8 +1601,12 @@ function renderShoppingV2() {
     products.slice().sort(byName).forEach(product => container.appendChild(buildProductRow(product)));
   } else {
     const byCat = new Map();
-    products.forEach(p => { if (!byCat.has(p.category)) byCat.set(p.category, []); byCat.get(p.category).push(p); });
-    const categories = Array.from(byCat.keys()).sort((a, b) => a.localeCompare(b, "de"));
+    products.forEach(p => {
+      const cat = normalizeCategoryClient(p.category);
+      if (!byCat.has(cat)) byCat.set(cat, []);
+      byCat.get(cat).push(p);
+    });
+    const categories = Array.from(byCat.keys()).sort((a, b) => FIXED_CATEGORIES.indexOf(a) - FIXED_CATEGORIES.indexOf(b));
     categories.forEach(cat => {
       const items = shoppingSortMode === "combined" ? byCat.get(cat).slice().sort(byName) : byCat.get(cat);
       const h = document.createElement("div"); h.className = "cat-header"; h.textContent = cat;
