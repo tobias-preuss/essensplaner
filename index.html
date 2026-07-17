@@ -527,13 +527,26 @@ let editModalCtx = null; // { idx, person }
 // Add-Shopping-Modal state
 let addShoppingCtx = null; // { idx, person, recipeId, portions, ingredients: [{name, unit, scaledQty, checked}] }
 
+// "YYYY-MM-DD" aus lokalen Datumsteilen (NICHT toISOString() - Zeitzonenverschiebung).
+function toLocalDateKey(dateLike) {
+  const d = new Date(dateLike);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 // Findet das DB-Rezept zu einem Tages-Gericht (für den 🛒-Button).
 // Bei Split-Tagen gibt es keine recipeId pro Seite, nur Freitext -> per Namen matchen
 // (analog zur bisherigen Server-Logik für Split-Zutaten).
-function isRecipeInShoppingList(recipeId) {
+// "added" gilt pro Tag: Quelle zählt, wenn recipeId passt UND (mealDate übereinstimmt
+// ODER die Quelle noch kein mealDate hat - Legacy-Fallback, galt bisher für jeden Tag).
+function isRecipeInShoppingList(recipeId, mealDate) {
   return shoppingItems.some(item =>
     item.type === "product" &&
-    (item.sources || []).some(src => !src.done && String(src.recipeId) === String(recipeId))
+    (item.sources || []).some(src =>
+      !src.done && String(src.recipeId) === String(recipeId) && (!src.mealDate || src.mealDate === mealDate)
+    )
   );
 }
 
@@ -752,8 +765,13 @@ function openAddToShoppingModal(idx, person, recipeId, portions) {
   const recipe = recipes.find(r => String(r.id) === String(recipeId));
   if (!recipe || !recipe.ingredients) return;
 
+  const day = mealPlan[idx];
+  const slot = dateSlots[idx] || {};
+  const date = new Date(slot.date || day.date);
+  const mealDate = toLocalDateKey(slot.date || day.date);
+
   addShoppingCtx = {
-    idx, person, recipeId, portions,
+    idx, person, recipeId, portions, mealDate,
     ingredients: recipe.ingredients.map(ing => ({
       name: ing.name,
       unit: ing.unit,
@@ -764,9 +782,6 @@ function openAddToShoppingModal(idx, person, recipeId, portions) {
     })),
   };
 
-  const day = mealPlan[idx];
-  const slot = dateSlots[idx] || {};
-  const date = new Date(slot.date || day.date);
   const label = `${DAYS_FULL[slot.dayOfWeek ?? day.dayOfWeek]}, ${fmtShort(date)} · ${recipe.name}`;
   document.getElementById("add-shopping-modal-subtitle").textContent = label;
   document.getElementById("add-shopping-dish-checkbox").checked = true;
@@ -828,6 +843,7 @@ async function submitAddShoppingModal() {
       portions:             ctx.portions,
       selectedIngredients: JSON.stringify(selectedNames),
       addDishEntry:         addDishEntry ? "true" : "false",
+      mealDate:             ctx.mealDate,
       ...(Object.keys(qtyTexts).length ? { qtyTexts: JSON.stringify(qtyTexts) } : {}),
     });
     shoppingItems = data.items || [];
@@ -1212,7 +1228,9 @@ function buildMealRow(idx, person, name, day, isLocked, isExpanded, showSplitBut
   let cartBtn = "";
   if (matchedRecipe) {
     const rowPortions = person === "tobi" ? day.portionsTobi : person === "nora" ? day.portionsNora : day.portions;
-    const addedClass = isRecipeInShoppingList(matchedRecipe.id) ? " added" : "";
+    const slot = dateSlots[idx] || {};
+    const mealDate = toLocalDateKey(slot.date || day.date);
+    const addedClass = isRecipeInShoppingList(matchedRecipe.id, mealDate) ? " added" : "";
     cartBtn = `<button class="icon-btn-sm${addedClass}" onclick="event.stopPropagation(); openAddToShoppingModal(${idx}, ${personParam}, '${matchedRecipe.id}', ${rowPortions})" title="Zur Einkaufsliste">🛒</button>`;
   }
 
