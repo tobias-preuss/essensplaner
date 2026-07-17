@@ -111,7 +111,7 @@
   .badge-reste { background: var(--reste-bg); color: var(--reste-text); }
   .badge-today { background: var(--accent); color: #fff; }
   .day-wrap.today { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
-  .row1-actions { margin-left: auto; display: flex; align-items: center; gap: 2px; }
+  .row1-actions { margin-left: auto; display: flex; align-items: center; gap: 16px; }
   .lock-icon { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; cursor: pointer; flex-shrink: 0; }
   .lock-icon svg { width: 17px; height: 17px; }
   .chevron { width: 16px; height: 16px; color: var(--text-muted); transition: transform 0.2s; flex-shrink: 0; }
@@ -1604,7 +1604,7 @@ function attachSwipe(selector, { onLeft, onRight, getMeta, excludeSelector }) {
 attachSwipe(".day-wrap", {
   excludeSelector: ".drag-handle",
   getMeta: (wrap) => parseInt(wrap.dataset.idx, 10),
-  onRight: (idx) => openDaySheet(idx),
+  onRight: (idx) => lockedDays.has(idx) ? showToast('Tag ist gesperrt 🔒', '', 1600) : openDaySheet(idx),
   onLeft:  (idx) => toggleLock(idx),
 });
 
@@ -1615,7 +1615,7 @@ attachSwipe(".shop-item", {
   onLeft:  (meta) => openDeleteEntryConfirm(meta.kind, meta.id),
 });
 
-// ── Bottom Sheet: Neu generieren (funktioniert auch gelockt) ────
+// ── Bottom Sheet: Neu generieren ─────────────────────────────────
 function openDaySheet(idx) {
   const day = mealPlan[idx];
   const slot = dateSlots[idx] || {};
