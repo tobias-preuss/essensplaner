@@ -109,6 +109,8 @@
   .badge { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 20px; white-space: nowrap; }
   .badge-prep  { background: #E8F4FD; color: #1A6B9A; }
   .badge-reste { background: var(--reste-bg); color: var(--reste-text); }
+  .badge-today { background: var(--accent); color: #fff; }
+  .day-wrap.today { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
   .row1-actions { margin-left: auto; display: flex; align-items: center; gap: 2px; }
   .lock-icon { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; cursor: pointer; flex-shrink: 0; }
   .lock-icon svg { width: 17px; height: 17px; }
@@ -131,7 +133,7 @@
   .meal-name-btn.placeholder { color: var(--text-muted); font-style: italic; }
   .meal-emoji { font-size: 15px; flex-shrink: 0; line-height: 1; }
 
-  .row-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; margin-left: auto; }
+  .row-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; margin-left: auto; }
   .pill-btn {
     font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 20px;
     border: 1px solid var(--border); background: var(--surface); color: var(--text);
@@ -148,6 +150,11 @@
   .icon-btn-sm:disabled { opacity: 0.3; cursor: not-allowed; }
   .icon-btn-sm.added { background: var(--accent); }
   .icon-btn-sm.loading svg, .icon-btn-sm.loading { pointer-events: none; }
+  .icon-btn-sm.regen-locked { opacity: 0.3; }
+
+  /* Vergrößerte, unsichtbare Trefferfläche (≥40px) ohne visuelle Vergrößerung der Icons */
+  .icon-btn-sm, .lock-icon, .stepper-btn, .check { position: relative; }
+  .icon-btn-sm::after, .lock-icon::after, .stepper-btn::after, .check::after { content: ""; position: absolute; inset: -8px; }
 
   /* ── Detail (expanded) ───────────────────────────────────── */
   .day-detail { max-height: 0; overflow: hidden; transition: max-height 0.25s ease; }
@@ -225,9 +232,13 @@
     background: #1c1c1e; color: #fff; border-radius: var(--radius-sm);
     padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px;
     font-size: 13px; z-index: 250; transition: transform 0.25s cubic-bezier(0.34,1.56,0.64,1);
+    overflow: hidden;
   }
   .undo-toast.show { transform: translateX(-50%) translateY(0); }
   .undo-toast button { background: none; border: none; color: #6FCF8D; font-weight: 700; font-size: 13px; cursor: pointer; }
+  .undo-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(255,255,255,0.15); }
+  .undo-progress-fill { height: 100%; width: 100%; background: #6FCF8D; }
+  @keyframes undoShrink { from { width: 100%; } to { width: 0%; } }
 
   /* ── Shopping & Pantry ───────────────────────────────────────── */
   .cat-header { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-muted); padding: 14px 2px 6px; }
@@ -344,6 +355,7 @@
 <div class="undo-toast" id="undo-toast">
   <span id="undo-text">Reihenfolge geändert</span>
   <button onclick="undoLastChange()">Rückgängig</button>
+  <div class="undo-progress"><div class="undo-progress-fill" id="undo-progress-fill"></div></div>
 </div>
 
 <!-- Edit Modal -->
@@ -1136,10 +1148,12 @@ function buildDayCard(day, idx, slot) {
   const dow  = slot.dayOfWeek;
   const isLocked = lockedDays.has(idx);
   const isExpanded = expandedIdx === idx;
+  const isToday = toLocalDateKey(date) === toLocalDateKey(new Date());
 
   let dayClass = "";
   if (dow === 6) dayClass = "saturday";
   if (dow === 0) dayClass = "sunday";
+  if (isToday) dayClass += " today";
 
   const wrap = document.createElement("div");
   wrap.className = `day-wrap ${dayClass} ${isLocked ? "locked" : ""} ${isExpanded ? "expanded" : ""}`.trim();
@@ -1155,6 +1169,7 @@ function buildDayCard(day, idx, slot) {
   const row1 = `
     <div class="row1" onclick="toggleExpand(${idx})">
       <span class="day-name">${DAYS_SHORT[dow]} ${fmtShort(date)}</span>
+      ${isToday ? `<span class="badge badge-today">Heute</span>` : ""}
       ${badgeHtml}
       <div class="row1-actions">
         <span class="lock-icon" onclick="event.stopPropagation(); toggleLock(${idx})">${lockSvg(isLocked)}</span>
@@ -1219,9 +1234,16 @@ function buildMealRow(idx, person, name, day, isLocked, isExpanded, showSplitBut
   }
 
   const regenIcon = isRegenerating ? "" : REGEN_SVG;
-  const regenDisabled = (isLocked || isRegenerating) ? "disabled" : "";
   const personParam = person ? `'${person}'` : "null";
-  const regenOnClick = (isLocked || isRegenerating) ? "" : `onclick="event.stopPropagation(); regenerateDay(${idx}, ${personParam})"`;
+  // Gesperrt: Button bleibt tap-fähig (nur optisch abgeblendet) und zeigt einen Hinweis-Toast,
+  // statt ihn per HTML-disabled stumm zu deaktivieren (kein Feedback bei Tap auf Touch-Geräten).
+  const regenClass = isLocked && !isRegenerating ? "icon-btn-sm regen-locked" : "icon-btn-sm";
+  const regenDisabled = isRegenerating ? "disabled" : "";
+  const regenOnClick = isRegenerating
+    ? ""
+    : isLocked
+      ? `onclick="event.stopPropagation(); showToast('Tag ist gesperrt 🔒', '', 1600)"`
+      : `onclick="event.stopPropagation(); regenerateDay(${idx}, ${personParam})"`;
 
   // 🛒-Button: nur wenn das Gericht als DB-Rezept erkennbar ist (Zutaten bekannt)
   const matchedRecipe = isRegenerating ? null : findRecipeForDay(day, person);
@@ -1242,7 +1264,7 @@ function buildMealRow(idx, person, name, day, isLocked, isExpanded, showSplitBut
         ${!isRegenerating && name ? `<span class="meal-emoji">${emoji}</span>` : ""}
         ${actionHtml}
         ${cartBtn}
-        <button class="icon-btn-sm" ${regenDisabled} ${regenOnClick} title="Neu generieren">${regenIcon}</button>
+        <button class="${regenClass}" ${regenDisabled} ${regenOnClick} title="Neu generieren">${regenIcon}</button>
       </div>
     </div>`;
 }
@@ -1480,12 +1502,18 @@ function setupSortable(container) {
   });
 }
 
+const UNDO_MS = 4000;
 function showUndoToast(text) {
   document.getElementById("undo-text").textContent = text;
   const toast = document.getElementById("undo-toast");
+  const fill = document.getElementById("undo-progress-fill");
   toast.classList.add("show");
+  // Animation neu starten (auch wenn "show" schon gesetzt war - erneutes Verschieben während des Countdowns)
+  fill.style.animation = "none";
+  void fill.offsetWidth;
+  fill.style.animation = `undoShrink ${UNDO_MS}ms linear`;
   clearTimeout(undoTimer);
-  undoTimer = setTimeout(() => { toast.classList.remove("show"); undoSnapshot = null; }, 4000);
+  undoTimer = setTimeout(() => { toast.classList.remove("show"); undoSnapshot = null; }, UNDO_MS);
 }
 async function undoLastChange() {
   if (!undoSnapshot) return;
