@@ -250,7 +250,8 @@
   .check { width: 24px; height: 24px; border-radius: 50%; border: 1.5px solid var(--border); flex-shrink: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 13px; color: white; transition: background 0.15s, border-color 0.15s, width 0.15s, height 0.15s; }
   .check.on { background: var(--accent); border-color: var(--accent); }
   .item-name { flex: 1; font-size: 15px; }
-  .item-amount { font-size: 13px; color: var(--text-muted); font-weight: 500; white-space: nowrap; }
+  .dish-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 10ch; }
+  .item-amount { font-size: 13px; color: var(--text-muted); font-weight: 500; white-space: nowrap; flex-shrink: 0; }
   .item-qty { font-size: 12.5px; color: var(--text-muted); word-break: break-word; max-width: 130px; flex-shrink: 0; }
   .sub-count { font-size: 11px; font-weight: 700; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--bg); color: var(--text-muted); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
   .src-inline { font-size: 12px; color: var(--text-muted); word-break: break-word; max-width: 130px; flex-shrink: 0; }
@@ -1885,7 +1886,7 @@ function buildDishRow(dish) {
   main.dataset.kind = "dish";
   main.dataset.id = dish.id;
   const statusHtml = dish.done ? `<span class="item-amount" style="color:var(--accent)">Erledigt</span>` : "";
-  main.innerHTML = `<div class="check ${dish.done ? "on" : ""}">${dish.done ? "✓" : ""}</div><span class="item-name">${dish.name}</span>${statusHtml}${badge}${hasSub ? CHEVRON_SVG : ""}`;
+  main.innerHTML = `<div class="check ${dish.done ? "on" : ""}">${dish.done ? "✓" : ""}</div><span class="item-name dish-name">${dish.name}</span>${statusHtml}${badge}${hasSub ? CHEVRON_SVG : ""}`;
   main.onclick = () => { if (hasSub) toggleShoppingExpand(dish.id); };
   main.querySelector(".check").onclick = (e) => { e.stopPropagation(); toggleShoppingEntry("dish", dish.id, null); };
   wrap.appendChild(main);
