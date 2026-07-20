@@ -723,7 +723,8 @@ async function loadPlan() {
     renderPlan();
     hideToast();
   } catch (err) {
-    showError("Plan konnte nicht geladen werden.");
+    loaded.plan = false;
+    showErrorWithRetry("Plan konnte nicht geladen werden.", loadPlan);
     console.error(err);
   }
 }
@@ -1707,7 +1708,11 @@ async function loadShoppingList() {
     shoppingItems = data.items || [];
     renderShoppingV2();
     hideToast();
-  } catch (err) { showError("Einkaufsliste konnte nicht geladen werden."); }
+  } catch (err) {
+    loaded.shopping = false;
+    showErrorWithRetry("Einkaufsliste konnte nicht geladen werden.", loadShoppingList);
+    console.error(err);
+  }
 }
 
 // ── Optimistic UI für den Einkauf-Tab ───────────────────────────
@@ -1966,7 +1971,11 @@ async function loadPantry() {
     pantryItems = data.items || [];
     renderPantry();
     hideToast();
-  } catch (err) { showError("Vorräte konnten nicht geladen werden."); }
+  } catch (err) {
+    loaded.pantry = false;
+    showErrorWithRetry("Vorräte konnten nicht geladen werden.", loadPantry);
+    console.error(err);
+  }
 }
 function renderPantry() {
   const container = document.getElementById("pantry-list");
