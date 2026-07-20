@@ -1725,11 +1725,12 @@ async function loadShoppingList() {
 // Wiederverwendbar für Plan-Tab, Einkauf-Tab und künftige Ressourcen (z.B.
 // Vorräte), nicht nur für den Einkauf-Tab.
 const pendingWrites = [];
+const pwDebounced = new Map(); // debounceKey -> wartende, noch nicht abgeschickte Serien-Aktion
 const writeSeq = {};       // resource -> zuletzt vergebene Sequenznummer
 const lastAppliedSeq = {}; // resource -> höchste bereits angewandte Sequenznummer
 
 function hasPendingWrites() {
-  return pendingWrites.length > 0;
+  return pendingWrites.length > 0 || pwDebounced.size > 0;
 }
 
 // Sequenznummer bei Dispatch vergeben (nicht erst bei Antworterhalt) - das ist
@@ -1779,6 +1780,44 @@ function attemptPendingWrite(action) {
   });
 }
 
+// Serien-Aktionen (z.B. schnelles wiederholtes An-/Abhaken desselben Produkts,
+// mehrere Drag&Drop-Reorders hintereinander) bündeln: Aufrufe mit demselben
+// debounceKey werden gesammelt und erst nach einer kurzen Pause (oder
+// spätestens nach maxWaitMs) als EIN runPendingWrite()-Request abgeschickt.
+// "baseline" ist der Zustand vor der ERSTEN Aktion der Serie (nur beim ersten
+// Aufruf pro Serie relevant) - wird für Rollback bei endgültigem Fehler an
+// onFinalError(err, baseline) durchgereicht.
+function scheduleDebouncedWrite({ debounceKey, resource, baseline, buildApiFn, applyResult, onFinalError, delayMs = 450, maxWaitMs = 2000 }) {
+  let entry = pwDebounced.get(debounceKey);
+  if (!entry) {
+    entry = { clickCount: 0, baseline, timer: null, maxWaitTimer: null };
+    pwDebounced.set(debounceKey, entry);
+    entry.maxWaitTimer = setTimeout(() => fireDebouncedWrite(debounceKey), maxWaitMs);
+  }
+  entry.clickCount += 1;
+  entry.resource = resource;
+  entry.buildApiFn = buildApiFn;
+  entry.applyResult = applyResult;
+  entry.onFinalError = onFinalError;
+  clearTimeout(entry.timer);
+  entry.timer = setTimeout(() => fireDebouncedWrite(debounceKey), delayMs);
+}
+
+function fireDebouncedWrite(debounceKey) {
+  const entry = pwDebounced.get(debounceKey);
+  if (!entry) return;
+  pwDebounced.delete(debounceKey);
+  clearTimeout(entry.timer);
+  clearTimeout(entry.maxWaitTimer);
+  if (entry.clickCount % 2 === 0) return; // Netto-Differenz null (z.B. an-aus), kein Request nötig
+  runPendingWrite({
+    resource: entry.resource,
+    apiFn: entry.buildApiFn,
+    applyResult: entry.applyResult,
+    onFinalError: err => entry.onFinalError(err, entry.baseline),
+  });
+}
+
 // ── Optimistic UI für den Einkauf-Tab ───────────────────────────
 // UI wird sofort lokal mutiert + gerendert, der API-Call läuft im Hintergrund
 // (mit Retry) weiter. Scheitert er endgültig, wird auf den Snapshot vor der
@@ -1788,21 +1827,27 @@ function applyShoppingResult(data) {
   renderShoppingV2();
 }
 
+// Rollback auf den Stand vor der Aktion + Fehler-Toast mit Retry-Button, der
+// den zwischenzeitlich (optimistisch, aber fehlgeschlagen) erreichten Zustand
+// wiederherstellt und die Aktion erneut versucht. Gemeinsam genutzt von
+// sofortigen Shopping-Aktionen und dem Debounce-Pfad (toggleShoppingEntry).
+function shoppingFinalErrorHandler(apiFn, snapshot) {
+  const failedState = structuredClone(shoppingItems);
+  shoppingItems = snapshot;
+  renderShoppingV2();
+  showErrorWithRetry("Änderung konnte nicht gespeichert werden.", () => {
+    shoppingItems = failedState;
+    renderShoppingV2();
+    runOptimisticShoppingAction(apiFn, snapshot);
+  });
+}
+
 function runOptimisticShoppingAction(apiFn, snapshot) {
   runPendingWrite({
     resource: "shopping",
     apiFn,
     applyResult: applyShoppingResult,
-    onFinalError: () => {
-      const failedState = structuredClone(shoppingItems);
-      shoppingItems = snapshot;
-      renderShoppingV2();
-      showErrorWithRetry("Änderung konnte nicht gespeichert werden.", () => {
-        shoppingItems = failedState;
-        renderShoppingV2();
-        runOptimisticShoppingAction(apiFn, snapshot);
-      });
-    },
+    onFinalError: () => shoppingFinalErrorHandler(apiFn, snapshot),
   });
 }
 
@@ -1875,13 +1920,28 @@ function applyOptimisticToggle(kind, id, index) {
 }
 
 function toggleShoppingEntry(kind, id, index) {
-  const snapshot = structuredClone(shoppingItems);
+  // Serien-Klicks auf denselben Eintrag (schnelles An-/Abhaken) werden gebündelt
+  // (siehe scheduleDebouncedWrite): baseline ist nur beim ersten Klick der Serie
+  // relevant, bei geradzahliger Klickanzahl innerhalb der Pause wird gar kein
+  // Request geschickt, da die Netto-Änderung null ist.
+  const debounceKey = `shoppingToggle:${kind}:${id}:${index ?? ""}`;
+  const baseline = pwDebounced.has(debounceKey) ? undefined : structuredClone(shoppingItems);
+
   applyOptimisticToggle(kind, id, index);
   renderShoppingV2();
 
   const params = { kind, id };
   if (index !== null && index !== undefined) params.index = index;
-  runOptimisticShoppingAction(() => apiCall("toggleShoppingEntry", params), snapshot);
+  const buildApiFn = () => apiCall("toggleShoppingEntry", params);
+
+  scheduleDebouncedWrite({
+    debounceKey,
+    resource: "shopping",
+    baseline,
+    buildApiFn,
+    applyResult: applyShoppingResult,
+    onFinalError: (err, entryBaseline) => shoppingFinalErrorHandler(buildApiFn, entryBaseline),
+  });
 }
 
 let expandedShoppingIds = new Set();
