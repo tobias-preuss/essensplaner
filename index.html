@@ -762,43 +762,46 @@ async function generatePlan() {
   }
 }
 
-async function regenerateDay(idx, person) {
+function regenerateDay(idx, person) {
   const key = person ? `${idx}-${person}` : `${idx}`;
   regeneratingKeys.add(key);
   renderPlan(); // zeigt Ladeindikator im Namen
   showToast("Generiere Gericht...");
 
-  try {
-    const params = { index: idx };
-    if (person) params.person = person;
-    const data = await apiCall("regenerateSingleDay", params);
+  const params = { index: idx };
+  if (person) params.person = person;
 
-    // Ergebnis korrekt in State schreiben
-    const updated = data.day || {};
-    if (person === "tobi") {
-      mealPlan[idx].customNameTobi = updated.recipeName || updated.customNameTobi || "";
-    } else if (person === "nora") {
-      mealPlan[idx].customNameNora = updated.recipeName || updated.customNameNora || "";
-    } else {
-      mealPlan[idx] = { ...mealPlan[idx], ...updated };
-    }
+  runPendingWrite({
+    resource: "mealPlan",
+    apiFn: () => apiCall("regenerateSingleDay", params),
+    applyResult: data => {
+      // Ergebnis korrekt in State schreiben
+      const updated = data.day || {};
+      if (person === "tobi") {
+        mealPlan[idx].customNameTobi = updated.recipeName || updated.customNameTobi || "";
+      } else if (person === "nora") {
+        mealPlan[idx].customNameNora = updated.recipeName || updated.customNameNora || "";
+      } else {
+        mealPlan[idx] = { ...mealPlan[idx], ...updated };
+      }
 
-    regeneratingKeys.delete(key);
-    renderPlan();
+      regeneratingKeys.delete(key);
+      renderPlan();
 
-    const card = document.getElementById(`day-wrap-${idx}`);
-    if (card) {
-      card.classList.remove("flash"); void card.offsetWidth;
-      card.classList.add("flash");
-      setTimeout(() => card.classList.remove("flash"), 1800);
-    }
-    showSuccess("Gericht aktualisiert ✓");
-  } catch (err) {
-    regeneratingKeys.delete(key);
-    renderPlan();
-    showError("Konnte Gericht nicht ändern.");
-    console.error(err);
-  }
+      const card = document.getElementById(`day-wrap-${idx}`);
+      if (card) {
+        card.classList.remove("flash"); void card.offsetWidth;
+        card.classList.add("flash");
+        setTimeout(() => card.classList.remove("flash"), 1800);
+      }
+      showSuccess("Gericht aktualisiert ✓");
+    },
+    onFinalError: () => {
+      regeneratingKeys.delete(key);
+      renderPlan();
+      showErrorWithRetry("Konnte Gericht nicht ändern.", () => regenerateDay(idx, person));
+    },
+  });
 }
 
 // ── Zur Einkaufsliste hinzufügen (🛒-Popup) ─────────────────────
@@ -1411,11 +1414,19 @@ function closeEditModalOnOverlay(e) {
   if (e.target === document.getElementById("edit-modal")) closeEditModal();
 }
 
-async function submitEditModal(recipeId) {
+function submitEditModal(recipeId) {
   const name = document.getElementById("edit-modal-input").value.trim();
   const ctx  = editModalCtx;
   closeEditModal();
   if (!ctx || !name) return;
+  applyEditModalChange(ctx, name, recipeId);
+}
+
+// Aus submitEditModal ausgelagert, damit ein Retry nach endgültigem Fehlschlag
+// nicht vom (zwischenzeitlich evtl. schon wieder anders befüllten) Modal-DOM
+// abhängt, sondern die ursprünglichen Werte direkt erneut verwendet.
+function applyEditModalChange(ctx, name, recipeId) {
+  const snapshot = structuredClone(mealPlan);
 
   // Optimistic UI: sofort lokal updaten
   const day = mealPlan[ctx.idx];
@@ -1425,22 +1436,29 @@ async function submitEditModal(recipeId) {
   renderPlan();
   showToast("Speichere...");
 
-  try {
-    const params = { index: ctx.idx, customName: name };
-    if (recipeId) params.recipeId = recipeId;
-    if (ctx.person) params.person = ctx.person;
-    const data = await apiCall("setMealForDay", params);
-    mealPlan[ctx.idx] = { ...mealPlan[ctx.idx], ...data.day };
-    renderPlan();
-    showSuccess("Gespeichert ✓");
-  } catch (err) {
-    showError("Konnte nicht speichern.");
-    console.error(err);
-  }
+  const params = { index: ctx.idx, customName: name };
+  if (recipeId) params.recipeId = recipeId;
+  if (ctx.person) params.person = ctx.person;
+
+  runPendingWrite({
+    resource: "mealPlan",
+    apiFn: () => apiCall("setMealForDay", params),
+    applyResult: data => {
+      mealPlan[ctx.idx] = { ...mealPlan[ctx.idx], ...data.day };
+      renderPlan();
+      showSuccess("Gespeichert ✓");
+    },
+    onFinalError: () => {
+      mealPlan = snapshot;
+      renderPlan();
+      showErrorWithRetry("Konnte nicht speichern.", () => applyEditModalChange(ctx, name, recipeId));
+    },
+  });
 }
 
 // ── Split Toggle (optimistic) ────────────────────────────────────
-async function toggleSplit(idx) {
+function toggleSplit(idx) {
+  const snapshot = structuredClone(mealPlan);
   const day = mealPlan[idx];
 
   // Optimistic lokale Vorschau
@@ -1459,39 +1477,61 @@ async function toggleSplit(idx) {
   renderPlan();
   showToast("Speichere...");
 
-  try {
-    const data = await apiCall("toggleSplit", { index: idx });
-    mealPlan[idx] = { ...mealPlan[idx], ...data.day };
-    renderPlan();
-    showSuccess("Aktualisiert ✓");
-  } catch (err) {
-    showError("Konnte nicht ändern.");
-    console.error(err);
-  }
+  runPendingWrite({
+    resource: "mealPlan",
+    apiFn: () => apiCall("toggleSplit", { index: idx }),
+    applyResult: data => {
+      mealPlan[idx] = { ...mealPlan[idx], ...data.day };
+      renderPlan();
+      showSuccess("Aktualisiert ✓");
+    },
+    onFinalError: () => {
+      mealPlan = snapshot;
+      renderPlan();
+      showErrorWithRetry("Konnte nicht ändern.", () => toggleSplit(idx));
+    },
+  });
 }
 
 // ── Stepper (optimistic) ─────────────────────────────────────────
-async function changePax(idx, delta) {
+function changePax(idx, delta) {
+  const snapshot = structuredClone(mealPlan);
   const newVal = Math.max(0, mealPlan[idx].portions + delta);
   mealPlan[idx].portions = newVal;
   mealPlan[idx].isMealPrep = newVal > 2;
   mealPlan[idx].isReste = newVal === 0;
   document.getElementById(`pax-${idx}`).textContent = newVal;
   renderPlan();
-  try {
-    const data = await apiCall("setPortions", { index: idx, value: newVal });
-    mealPlan[idx] = { ...mealPlan[idx], ...data.day };
-  } catch (err) { console.error(err); showError("Konnte nicht speichern."); }
+
+  runPendingWrite({
+    resource: "mealPlan",
+    apiFn: () => apiCall("setPortions", { index: idx, value: newVal }),
+    applyResult: data => { mealPlan[idx] = { ...mealPlan[idx], ...data.day }; renderPlan(); },
+    onFinalError: () => {
+      mealPlan = snapshot;
+      renderPlan();
+      showErrorWithRetry("Konnte nicht speichern.", () => changePax(idx, delta));
+    },
+  });
 }
 
-async function changePersonPax(idx, person, delta) {
+function changePersonPax(idx, person, delta) {
+  const snapshot = structuredClone(mealPlan);
   const key = person === "tobi" ? "portionsTobi" : "portionsNora";
   const newVal = Math.max(1, mealPlan[idx][key] + delta);
   mealPlan[idx][key] = newVal;
   document.getElementById(`pax-${idx}-${person}`).textContent = newVal;
-  try {
-    await apiCall("setPortions", { index: idx, person, value: newVal });
-  } catch (err) { console.error(err); showError("Konnte nicht speichern."); }
+
+  runPendingWrite({
+    resource: "mealPlan",
+    apiFn: () => apiCall("setPortions", { index: idx, person, value: newVal }),
+    applyResult: data => { if (data.day) mealPlan[idx] = { ...mealPlan[idx], ...data.day }; },
+    onFinalError: () => {
+      mealPlan = snapshot;
+      renderPlan();
+      showErrorWithRetry("Konnte nicht speichern.", () => changePersonPax(idx, person, delta));
+    },
+  });
 }
 
 // ── Sortable mit Lock + Undo ─────────────────────────────────────
@@ -1602,23 +1642,31 @@ function savePlanOrder() {
   });
 }
 
-async function toggleLock(idx) {
+function toggleLock(idx) {
+  if (!mealPlan[idx]) return;
+  const dateKey = toLocalDateKey(mealPlan[idx].date);
+
   // Optimistic update
   if (lockedDays.has(idx)) lockedDays.delete(idx); else lockedDays.add(idx);
   // isLocked im lokalen State updaten
-  if (mealPlan[idx]) mealPlan[idx].isLocked = lockedDays.has(idx);
+  mealPlan[idx].isLocked = lockedDays.has(idx);
   renderPlan();
-  // Im Hintergrund in Sheets persistieren (datumsbasiert, nicht index-basiert)
-  try {
-    await apiCall("toggleLock", { date: toLocalDateKey(mealPlan[idx].date) });
-  } catch (err) {
-    // Rollback bei Fehler
-    if (lockedDays.has(idx)) lockedDays.delete(idx); else lockedDays.add(idx);
-    if (mealPlan[idx]) mealPlan[idx].isLocked = lockedDays.has(idx);
-    renderPlan();
-    showError("Lock konnte nicht gespeichert werden.");
-    console.error(err);
-  }
+
+  // Im Hintergrund in Sheets persistieren (datumsbasiert, nicht index-basiert),
+  // mit Retry statt sofortigem Rollback bei nur transienten Fehlern (z.B.
+  // Lock-Kontention bei vielen schnell hintereinander gesperrten Tagen).
+  runPendingWrite({
+    resource: "mealPlan",
+    apiFn: () => apiCall("toggleLock", { date: dateKey }),
+    applyResult: () => {}, // optimistischer Stand ist bereits korrekt
+    onFinalError: () => {
+      // Rollback erst nach endgültigem Fehlschlag (inkl. Retries)
+      if (lockedDays.has(idx)) lockedDays.delete(idx); else lockedDays.add(idx);
+      mealPlan[idx].isLocked = lockedDays.has(idx);
+      renderPlan();
+      showErrorWithRetry("Lock konnte nicht gespeichert werden.", () => toggleLock(idx));
+    },
+  });
 }
 
 // ── Swipe: generischer Helfer mit Live-Feedback (Zeile folgt dem Finger) ──
