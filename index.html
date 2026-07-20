@@ -1522,20 +1522,29 @@ function setupSortable(container) {
       const oldIdx = parseInt(evt.item.dataset.idx, 10);
       const newIdx = Array.from(container.querySelectorAll(".day-wrap")).indexOf(evt.item);
       if (oldIdx === newIdx) return;
-      if (lockedDays.has(newIdx)) { renderPlan(); return; }
 
       undoSnapshot = JSON.parse(JSON.stringify(mealPlan));
-      const moved = mealPlan.splice(oldIdx, 1)[0];
-      mealPlan.splice(newIdx, 0, moved);
 
-      const newLocked = new Set();
-      lockedDays.forEach(i => {
-        let adj = i;
-        if (oldIdx < newIdx) { if (i > oldIdx && i <= newIdx) adj = i - 1; }
-        else                 { if (i >= newIdx && i < oldIdx) adj = i + 1; }
-        newLocked.add(adj);
-      });
-      lockedDays = newLocked;
+      // Gelockte Tage sind fixe Slots (Datum UND Inhalt bleiben unverändert an ihrer
+      // Position) - nur die Inhalte der NICHT gelockten Tage werden neu angeordnet und
+      // "fließen" dabei um gelockte Tage herum, statt sie zu verdrängen.
+      const lockedIndices = new Set(lockedDays);
+      const movedContent = mealPlan[oldIdx];
+
+      const unlockedContents = mealPlan
+        .filter((day, i) => !lockedIndices.has(i) && i !== oldIdx);
+
+      let insertAt = 0;
+      for (let i = 0; i < newIdx; i++) {
+        if (i === oldIdx) continue;
+        if (!lockedIndices.has(i)) insertAt++;
+      }
+      unlockedContents.splice(insertAt, 0, movedContent);
+
+      let cursor = 0;
+      mealPlan = mealPlan.map((day, i) => lockedIndices.has(i) ? day : unlockedContents[cursor++]);
+
+      // lockedDays bleibt unverändert: gelockte Indizes verschieben sich per Definition nicht mehr.
       expandedIdx = null;
       renderPlan();
       showUndoToast("Reihenfolge geändert");
