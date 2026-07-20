@@ -867,7 +867,7 @@ function closeAddShoppingModalOnOverlay(e) {
   if (e.target === document.getElementById("add-shopping-modal")) closeAddShoppingModal();
 }
 
-async function submitAddShoppingModal() {
+function submitAddShoppingModal() {
   const ctx = addShoppingCtx;
   if (!ctx) return;
   const selectedNames = ctx.ingredients.filter(ing => ing.checked).map(ing => ing.name);
@@ -878,23 +878,24 @@ async function submitAddShoppingModal() {
   if (!selectedNames.length) return;
 
   showToast("Füge zur Einkaufsliste hinzu...");
-  try {
-    const data = await apiCall("addDishToShoppingList", {
+  runPendingWrite({
+    resource: "shopping",
+    apiFn: () => apiCall("addDishToShoppingList", {
       recipeId:            ctx.recipeId,
       portions:             ctx.portions,
       selectedIngredients: JSON.stringify(selectedNames),
       addDishEntry:         addDishEntry ? "true" : "false",
       mealDate:             ctx.mealDate,
       ...(Object.keys(qtyTexts).length ? { qtyTexts: JSON.stringify(qtyTexts) } : {}),
-    });
-    shoppingItems = data.items || [];
-    renderShoppingV2();
-    renderPlan();
-    showSuccess("Zur Einkaufsliste hinzugefügt ✓");
-  } catch (err) {
-    showError("Konnte nicht hinzugefügt werden.");
-    console.error(err);
-  }
+    }),
+    applyResult: data => {
+      shoppingItems = data.items || [];
+      renderShoppingV2();
+      renderPlan();
+      showSuccess("Zur Einkaufsliste hinzugefügt ✓");
+    },
+    onFinalError: () => showError("Konnte nicht hinzugefügt werden."),
+  });
 }
 
 // ── Manuell hinzufügen (Popup) ──────────────────────────────────
@@ -1692,10 +1693,10 @@ function closeSheet(event) {
 // Lädt die Einkaufsliste ohne Toast/Panel-Render, damit die grünen Warenkorb-Icons im
 // Plan-Tab schon vor dem ersten Besuch des Einkauf-Tabs korrekt sind.
 async function preloadShoppingListSilently() {
+  const seq = dispatchSeq("shopping");
   try {
     const data = await apiCall("getShoppingListV2");
-    shoppingItems = data.items || [];
-    renderPlan();
+    applyIfLatest("shopping", seq, () => { shoppingItems = data.items || []; renderPlan(); });
   } catch (err) { /* Icons bleiben grau, kein Fehler-Toast nötig für einen Hintergrund-Preload */ }
 }
 
@@ -1703,10 +1704,10 @@ async function preloadShoppingListSilently() {
 async function loadShoppingList() {
   if (!shoppingItems.length) renderSkeleton("shopping-list", 5, "skel-item");
   showToast("Lade Einkaufsliste...");
+  const seq = dispatchSeq("shopping");
   try {
     const data = await apiCall("getShoppingListV2");
-    shoppingItems = data.items || [];
-    renderShoppingV2();
+    applyIfLatest("shopping", seq, () => { shoppingItems = data.items || []; renderShoppingV2(); });
     hideToast();
   } catch (err) {
     loaded.shopping = false;
@@ -1715,41 +1716,93 @@ async function loadShoppingList() {
   }
 }
 
-// ── Optimistic UI für den Einkauf-Tab ───────────────────────────
-// UI wird sofort lokal mutiert + gerendert, der API-Call läuft im Hintergrund
-// (mit Retry) weiter. Scheitert er endgültig, wird auf den Snapshot vor der
-// Mutation zurückgerollt und ein Fehler-Toast gezeigt (analog zu toggleLock()).
-let pendingShoppingActions = [];
+// ── Generisches "Pending Writes"-Modul ───────────────────────────
+// Sofortige Schreibaktionen mit Retry + "last request wins"-Schutz: pro
+// Ressource wird bei jedem Dispatch eine Sequenznummer vergeben. Eine Antwort
+// wird nur übernommen, wenn seither noch keine neuere Aktion derselben
+// Ressource angewandt wurde - verhindert, dass eine verspätet eintreffende,
+// veraltete Antwort einen bereits aktuelleren UI-Zustand überschreibt.
+// Wiederverwendbar für Plan-Tab, Einkauf-Tab und künftige Ressourcen (z.B.
+// Vorräte), nicht nur für den Einkauf-Tab.
+const pendingWrites = [];
+const writeSeq = {};       // resource -> zuletzt vergebene Sequenznummer
+const lastAppliedSeq = {}; // resource -> höchste bereits angewandte Sequenznummer
 
-function runOptimisticShoppingAction(apiFn, snapshot) {
-  const action = { apiFn, snapshot, retriesLeft: 2, inFlight: false, timer: null };
-  pendingShoppingActions.push(action);
-  attemptShoppingAction(action);
+function hasPendingWrites() {
+  return pendingWrites.length > 0;
 }
 
-function attemptShoppingAction(action) {
+// Sequenznummer bei Dispatch vergeben (nicht erst bei Antworterhalt) - das ist
+// die Grundlage von "last request wins": zwei Low-Level-Helfer, die auch reine
+// Lesevorgänge (z.B. getShoppingListV2 beim Tab-Wechsel) vor derselben
+// Race schützen können, ohne den vollen Retry-Apparat von runPendingWrite.
+function dispatchSeq(resource) {
+  writeSeq[resource] = (writeSeq[resource] || 0) + 1;
+  return writeSeq[resource];
+}
+function applyIfLatest(resource, seq, applyFn) {
+  if (seq > (lastAppliedSeq[resource] || 0)) {
+    lastAppliedSeq[resource] = seq;
+    applyFn();
+  }
+}
+
+function runPendingWrite({ resource, apiFn, applyResult, onFinalError, retries = 2, retryDelayMs = 1200 }) {
+  const action = {
+    resource, apiFn, applyResult, onFinalError,
+    seq: dispatchSeq(resource),
+    retriesLeft: retries, retryDelayMs,
+    inFlight: false, timer: null,
+  };
+  pendingWrites.push(action);
+  attemptPendingWrite(action);
+  return action;
+}
+
+function attemptPendingWrite(action) {
   action.inFlight = true;
   action.apiFn().then(data => {
-    pendingShoppingActions = pendingShoppingActions.filter(a => a !== action);
-    shoppingItems = data.items || [];
-    renderShoppingV2();
+    const idx = pendingWrites.indexOf(action);
+    if (idx !== -1) pendingWrites.splice(idx, 1);
+    applyIfLatest(action.resource, action.seq, () => action.applyResult(data));
   }).catch(err => {
     action.inFlight = false;
     action.retriesLeft -= 1;
     if (action.retriesLeft > 0) {
-      action.timer = setTimeout(() => attemptShoppingAction(action), 1200);
+      action.timer = setTimeout(() => attemptPendingWrite(action), action.retryDelayMs);
     } else {
-      pendingShoppingActions = pendingShoppingActions.filter(a => a !== action);
+      const idx = pendingWrites.indexOf(action);
+      if (idx !== -1) pendingWrites.splice(idx, 1);
+      console.error(err);
+      action.onFinalError(err);
+    }
+  });
+}
+
+// ── Optimistic UI für den Einkauf-Tab ───────────────────────────
+// UI wird sofort lokal mutiert + gerendert, der API-Call läuft im Hintergrund
+// (mit Retry) weiter. Scheitert er endgültig, wird auf den Snapshot vor der
+// Mutation zurückgerollt und ein Fehler-Toast gezeigt (analog zu toggleLock()).
+function applyShoppingResult(data) {
+  shoppingItems = data.items || [];
+  renderShoppingV2();
+}
+
+function runOptimisticShoppingAction(apiFn, snapshot) {
+  runPendingWrite({
+    resource: "shopping",
+    apiFn,
+    applyResult: applyShoppingResult,
+    onFinalError: () => {
       const failedState = structuredClone(shoppingItems);
-      shoppingItems = action.snapshot;
+      shoppingItems = snapshot;
       renderShoppingV2();
       showErrorWithRetry("Änderung konnte nicht gespeichert werden.", () => {
         shoppingItems = failedState;
         renderShoppingV2();
-        runOptimisticShoppingAction(action.apiFn, action.snapshot);
+        runOptimisticShoppingAction(apiFn, snapshot);
       });
-      console.error(err);
-    }
+    },
   });
 }
 
@@ -1758,10 +1811,10 @@ function attemptShoppingAction(action) {
 // auf den Retry-Timer zu warten.
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) return;
-  pendingShoppingActions.forEach(action => {
-    if (action.inFlight) return; // läuft schon, kein doppelter Toggle-Request
+  pendingWrites.forEach(action => {
+    if (action.inFlight) return; // läuft schon, kein doppelter Request
     clearTimeout(action.timer);
-    attemptShoppingAction(action);
+    attemptPendingWrite(action);
   });
 });
 
