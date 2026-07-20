@@ -1061,7 +1061,7 @@ function submitQtyEditModal() {
   recomputeProductDerived(product);
   renderShoppingV2();
 
-  runOptimisticShoppingAction(() => apiCall("setSourceQtyText", { id, sourceIndex, qtyText }), snapshot);
+  runOptimisticShoppingAction(() => apiCall("setSourceQtyText", { id, sourceIndex, qtyText }), snapshot, () => {});
 }
 
 // ── Einkaufsliste sortieren (Popup) ─────────────────────────────
@@ -1109,7 +1109,7 @@ function submitDeleteShopping(mode) {
   const snapshot = structuredClone(shoppingItems);
   applyOptimisticDelete(mode);
   renderShoppingV2();
-  runOptimisticShoppingAction(() => apiCall("deleteShoppingItems", { mode }), snapshot);
+  runOptimisticShoppingAction(() => apiCall("deleteShoppingItems", { mode }), snapshot, () => {});
 }
 
 // ── Einzeleintrag löschen (Swipe nach links) ────────────────────
@@ -1149,7 +1149,7 @@ function confirmDeleteEntry() {
   const snapshot = structuredClone(shoppingItems);
   applyOptimisticSingleDelete(ctx.kind, ctx.id);
   renderShoppingV2();
-  runOptimisticShoppingAction(() => apiCall("deleteShoppingEntry", { kind: ctx.kind, id: ctx.id }), snapshot);
+  runOptimisticShoppingAction(() => apiCall("deleteShoppingEntry", { kind: ctx.kind, id: ctx.id }), snapshot, () => {});
 }
 
 // ── Skeleton-Platzhalter beim ersten Laden ──────────────────────
@@ -1642,11 +1642,16 @@ function savePlanOrder() {
     resource: "mealPlan",
     buildApiFn: () => apiCall("updateMealOrder", { order: JSON.stringify(orderDateKeys) }),
     // Kein Re-Render bei Erfolg: die lokale Umsortierung (setupSortable/onEnd)
-    // ist bereits deterministisch korrekt. Ein erneutes Anwenden der (nach der
-    // Debounce-Pause ggf. schon leicht veralteten) Server-Antwort würde die
-    // Ansicht sichtbar "nachträglich" springen lassen, obwohl sich inhaltlich
-    // nichts geändert hat (analog zu toggleLock()).
-    applyResult: () => {},
+    // ist bereits deterministisch korrekt. ABER: mealPlan[i].date dient onEnd
+    // als "Herkunfts-Identität" (welcher Ursprungs-Tag sitzt jetzt an Position i)
+    // und muss nach dem Speichern still auf den jetzt persistierten Stand
+    // (= dateSlots[i].date) zurückgesetzt werden - sonst würde eine SPÄTERE
+    // Reorder-Runde mit veralteten Identitäts-Keys arbeiten und der Server
+    // vertauscht beim nächsten Speichern die falschen Tage (kein Re-Render,
+    // daher unsichtbar bis zum nächsten Neustart/Reload).
+    applyResult: () => {
+      mealPlan.forEach((day, i) => { if (dateSlots[i]) day.date = dateSlots[i].date; });
+    },
     onFinalError: () => showErrorWithRetry("Reihenfolge konnte nicht gespeichert werden.", savePlanOrder),
     delayMs: 600,
     maxWaitMs: 2500,
@@ -1941,23 +1946,29 @@ function applyShoppingResult(data) {
 // den zwischenzeitlich (optimistisch, aber fehlgeschlagen) erreichten Zustand
 // wiederherstellt und die Aktion erneut versucht. Gemeinsam genutzt von
 // sofortigen Shopping-Aktionen und dem Debounce-Pfad (toggleShoppingEntry).
-function shoppingFinalErrorHandler(apiFn, snapshot) {
+function shoppingFinalErrorHandler(apiFn, snapshot, applyResult = applyShoppingResult) {
   const failedState = structuredClone(shoppingItems);
   shoppingItems = snapshot;
   renderShoppingV2();
   showErrorWithRetry("Änderung konnte nicht gespeichert werden.", () => {
     shoppingItems = failedState;
     renderShoppingV2();
-    runOptimisticShoppingAction(apiFn, snapshot);
+    runOptimisticShoppingAction(apiFn, snapshot, applyResult);
   });
 }
 
-function runOptimisticShoppingAction(apiFn, snapshot) {
+// 'applyResult' ist optional: Standard übernimmt die Server-Antwort (nötig für
+// Aktionen wie addManualItem, die serverseitig vergebene IDs/Merging liefern).
+// Für Aktionen, deren lokale optimistische Mutation die Server-Logik bereits
+// vollständig spiegelt (z.B. Löschen, Menge bearbeiten), wird () => {} übergeben
+// - verhindert, dass ihre Antwort einen zeitgleich noch wartenden, entprellten
+// Toggle (siehe toggleShoppingEntry) mit veralteten Daten überschreibt/zurücksetzt.
+function runOptimisticShoppingAction(apiFn, snapshot, applyResult = applyShoppingResult) {
   runPendingWrite({
     resource: "shopping",
     apiFn,
-    applyResult: applyShoppingResult,
-    onFinalError: () => shoppingFinalErrorHandler(apiFn, snapshot),
+    applyResult,
+    onFinalError: () => shoppingFinalErrorHandler(apiFn, snapshot, applyResult),
   });
 }
 
@@ -2051,7 +2062,7 @@ function toggleShoppingEntry(kind, id, index) {
     // vollständig - ein erneutes Anwenden der (nach der Debounce-Pause ggf. bereits
     // veralteten) Server-Antwort würde die Liste sichtbar "nachträglich" springen lassen.
     applyResult: () => {},
-    onFinalError: (err, entryBaseline) => shoppingFinalErrorHandler(buildApiFn, entryBaseline),
+    onFinalError: (err, entryBaseline) => shoppingFinalErrorHandler(buildApiFn, entryBaseline, () => {}),
     isNoOp: entry => entry.clickCount % 2 === 0,
   });
 }
