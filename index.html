@@ -1568,27 +1568,38 @@ function showUndoToast(text) {
   clearTimeout(undoTimer);
   undoTimer = setTimeout(() => { toast.classList.remove("show"); undoSnapshot = null; }, UNDO_MS);
 }
-async function undoLastChange() {
+function undoLastChange() {
   if (!undoSnapshot) return;
   mealPlan = undoSnapshot; undoSnapshot = null;
   document.getElementById("undo-toast").classList.remove("show");
   clearTimeout(undoTimer);
   renderPlan();
-  await savePlanOrder();
+  savePlanOrder();
   showSuccess("Rückgängig gemacht ✓");
 }
 
-async function savePlanOrder() {
-  try {
-    const order = mealPlan.map(day => ({
-      recipeId: day.recipeId, recipeName: day.recipeName, isCustomName: day.isCustomName,
-      portions: day.portions, note: day.note || "",
-      isSplit: day.isSplit || false, customNameTobi: day.customNameTobi || "", customNameNora: day.customNameNora || "",
-      portionsTobi: day.portionsTobi, portionsNora: day.portionsNora,
-      isLocked: day.isLocked || false,
-    }));
-    await apiCall("updateMealOrder", { order: JSON.stringify(order) });
-  } catch (err) { showError("Reihenfolge konnte nicht gespeichert werden."); console.error(err); }
+// Schickt nur die Reihenfolge (Datums-Keys, gleiches Format wie toggleLock),
+// nicht den vollen Tages-Inhalt - Inhalt kommt serverseitig immer frisch aus
+// dem Sheet (siehe updateMealOrder-Handler). Mehrere schnelle Reorders
+// kollabieren dank scheduleDebouncedWrite zu einem Request mit dem finalen
+// Stand statt sich gegenseitig mit veralteten Snapshots zu überschreiben.
+function savePlanOrder() {
+  const orderDateKeys = mealPlan.map(day => toLocalDateKey(day.date));
+  scheduleDebouncedWrite({
+    debounceKey: "planOrder",
+    resource: "mealPlan",
+    buildApiFn: () => apiCall("updateMealOrder", { order: JSON.stringify(orderDateKeys) }),
+    applyResult: data => {
+      if (!data.mealPlan) return;
+      mealPlan  = data.mealPlan;
+      dateSlots = mealPlan.map(d => ({ date: d.date, dayOfWeek: d.dayOfWeek }));
+      lockedDays = new Set(mealPlan.map((d, i) => d.isLocked ? i : -1).filter(i => i >= 0));
+      renderPlan();
+    },
+    onFinalError: () => showErrorWithRetry("Reihenfolge konnte nicht gespeichert werden.", savePlanOrder),
+    delayMs: 600,
+    maxWaitMs: 2500,
+  });
 }
 
 async function toggleLock(idx) {
@@ -1786,8 +1797,12 @@ function attemptPendingWrite(action) {
 // spätestens nach maxWaitMs) als EIN runPendingWrite()-Request abgeschickt.
 // "baseline" ist der Zustand vor der ERSTEN Aktion der Serie (nur beim ersten
 // Aufruf pro Serie relevant) - wird für Rollback bei endgültigem Fehler an
-// onFinalError(err, baseline) durchgereicht.
-function scheduleDebouncedWrite({ debounceKey, resource, baseline, buildApiFn, applyResult, onFinalError, delayMs = 450, maxWaitMs = 2000 }) {
+// onFinalError(err, baseline) durchgereicht. "isNoOp(entry)" ist optional:
+// liefert sie true, wird beim Feuern gar kein Request geschickt (z.B. Toggle-
+// Serie mit gerader Klickanzahl = Netto-Änderung null). Ohne isNoOp wird immer
+// gesendet (z.B. Reorder: mehrere Drops sollen zu einem Request mit dem
+// finalen Stand kollabieren, nicht wegfallen).
+function scheduleDebouncedWrite({ debounceKey, resource, baseline, buildApiFn, applyResult, onFinalError, isNoOp, delayMs = 450, maxWaitMs = 2000 }) {
   let entry = pwDebounced.get(debounceKey);
   if (!entry) {
     entry = { clickCount: 0, baseline, timer: null, maxWaitTimer: null };
@@ -1799,6 +1814,7 @@ function scheduleDebouncedWrite({ debounceKey, resource, baseline, buildApiFn, a
   entry.buildApiFn = buildApiFn;
   entry.applyResult = applyResult;
   entry.onFinalError = onFinalError;
+  entry.isNoOp = isNoOp || (() => false);
   clearTimeout(entry.timer);
   entry.timer = setTimeout(() => fireDebouncedWrite(debounceKey), delayMs);
 }
@@ -1809,7 +1825,7 @@ function fireDebouncedWrite(debounceKey) {
   pwDebounced.delete(debounceKey);
   clearTimeout(entry.timer);
   clearTimeout(entry.maxWaitTimer);
-  if (entry.clickCount % 2 === 0) return; // Netto-Differenz null (z.B. an-aus), kein Request nötig
+  if (entry.isNoOp(entry)) return;
   runPendingWrite({
     resource: entry.resource,
     apiFn: entry.buildApiFn,
@@ -1941,6 +1957,7 @@ function toggleShoppingEntry(kind, id, index) {
     buildApiFn,
     applyResult: applyShoppingResult,
     onFinalError: (err, entryBaseline) => shoppingFinalErrorHandler(buildApiFn, entryBaseline),
+    isNoOp: entry => entry.clickCount % 2 === 0,
   });
 }
 
