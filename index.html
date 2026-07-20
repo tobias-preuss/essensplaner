@@ -35,24 +35,17 @@
   /* ── Tabs ─────────────────────────────────────────────────── */
   .tabs { display: flex; height: var(--tab-h); background: var(--surface); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 100; }
   .tab { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 10px; font-weight: 500; color: var(--text-muted); cursor: pointer; border-bottom: 2px solid transparent; letter-spacing: 0.3px; transition: color 0.15s, border-color 0.15s; user-select: none; }
-  .tab .icon { font-size: 20px; line-height: 1; }
+  .tab .icon { font-size: 20px; line-height: 1; position: relative; }
   .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 
-  /* ── Speichern-Status (tippen = ausstehende Änderungen sofort senden) ── */
-  .save-status {
-    position: absolute; top: 6px; right: 8px;
-    display: flex; align-items: center; gap: 4px;
-    font-size: 10px; font-weight: 700; padding: 3px 9px;
-    border-radius: 999px; cursor: pointer; user-select: none;
-    background: var(--accent-bg); color: var(--accent-text);
-    z-index: 101; transition: background 0.15s, color 0.15s;
+  /* ── Pending-Dot: dezenter Punkt am Tab-Icon, solange für diesen Bereich noch
+     im Hintergrund gespeichert wird. Rein passiv, kein Klick-Handler. ── */
+  .pending-dot {
+    position: absolute; top: -1px; right: -5px;
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--accent); display: none;
   }
-  .save-status.saving { background: var(--surface-lock); color: var(--text-muted); }
-  .save-status .spinner-sm {
-    width: 9px; height: 9px; border: 1.5px solid currentColor; border-top-color: transparent;
-    border-radius: 50%; animation: spin 0.6s linear infinite; display: none;
-  }
-  .save-status.saving .spinner-sm { display: inline-block; }
+  .pending-dot.visible { display: block; }
 
   /* ── Floating toast (status) ──────────────────────────────────  */
   .float-toast {
@@ -319,13 +312,9 @@
 <body>
 
 <nav class="tabs">
-  <div class="tab active" data-panel="plan" onclick="switchTab(this)"><span class="icon">📅</span>Plan</div>
-  <div class="tab" data-panel="shopping" onclick="switchTab(this)"><span class="icon">🛒</span>Einkauf</div>
+  <div class="tab active" data-panel="plan" onclick="switchTab(this)"><span class="icon">📅<span class="pending-dot" id="tab-dot-mealPlan"></span></span>Plan</div>
+  <div class="tab" data-panel="shopping" onclick="switchTab(this)"><span class="icon">🛒<span class="pending-dot" id="tab-dot-shopping"></span></span>Einkauf</div>
   <div class="tab" data-panel="pantry" onclick="switchTab(this)"><span class="icon">📦</span>Vorräte</div>
-  <div class="save-status" id="save-status" onclick="flushPendingWrites()" title="Tippen, um ausstehende Änderungen sofort zu speichern">
-    <span class="spinner-sm"></span>
-    <span id="save-status-text">Gespeichert ✓</span>
-  </div>
 </nav>
 
 <div class="float-toast" id="float-toast">
@@ -1652,13 +1641,12 @@ function savePlanOrder() {
     debounceKey: "planOrder",
     resource: "mealPlan",
     buildApiFn: () => apiCall("updateMealOrder", { order: JSON.stringify(orderDateKeys) }),
-    applyResult: data => {
-      if (!data.mealPlan) return;
-      mealPlan  = data.mealPlan;
-      dateSlots = mealPlan.map(d => ({ date: d.date, dayOfWeek: d.dayOfWeek }));
-      lockedDays = new Set(mealPlan.map((d, i) => d.isLocked ? i : -1).filter(i => i >= 0));
-      renderPlan();
-    },
+    // Kein Re-Render bei Erfolg: die lokale Umsortierung (setupSortable/onEnd)
+    // ist bereits deterministisch korrekt. Ein erneutes Anwenden der (nach der
+    // Debounce-Pause ggf. schon leicht veralteten) Server-Antwort würde die
+    // Ansicht sichtbar "nachträglich" springen lassen, obwohl sich inhaltlich
+    // nichts geändert hat (analog zu toggleLock()).
+    applyResult: () => {},
     onFinalError: () => showErrorWithRetry("Reihenfolge konnte nicht gespeichert werden.", savePlanOrder),
     delayMs: 600,
     maxWaitMs: 2500,
@@ -1811,24 +1799,31 @@ const pwDebounced = new Map(); // debounceKey -> wartende, noch nicht abgeschick
 const writeSeq = {};       // resource -> zuletzt vergebene Sequenznummer
 const lastAppliedSeq = {}; // resource -> höchste bereits angewandte Sequenznummer
 
-function hasPendingWrites() {
-  return pendingWrites.length > 0 || pwDebounced.size > 0;
+// Ohne 'resource' global über alle Ressourcen, mit 'resource' nur für diese
+// eine (z.B. für den Pending-Dot am jeweiligen Tab-Icon).
+function hasPendingWrites(resource) {
+  const inImmediate = pendingWrites.some(a => !resource || a.resource === resource);
+  if (inImmediate) return true;
+  for (const entry of pwDebounced.values()) {
+    if (!resource || entry.resource === resource) return true;
+  }
+  return false;
 }
 
-// Speichern-Status-Pill im Header (siehe <nav class="tabs">): zeigt an, ob
-// gerade etwas im Hintergrund gespeichert wird. Tippen ruft flushPendingWrites().
+// Pending-Dots an den Tab-Icons (siehe <nav class="tabs">): rein passiver
+// Indikator, ob für diesen Bereich gerade etwas im Hintergrund gespeichert
+// wird - kein Klick-Handler, kein dauerhaft sichtbarer "Gespeichert"-Zustand.
 function updateSaveIndicator() {
-  const el = document.getElementById("save-status");
-  if (!el) return;
-  const pending = hasPendingWrites();
-  el.classList.toggle("saving", pending);
-  document.getElementById("save-status-text").textContent = pending ? "Speichert…" : "Gespeichert ✓";
+  const planDot     = document.getElementById("tab-dot-mealPlan");
+  const shoppingDot = document.getElementById("tab-dot-shopping");
+  if (planDot)     planDot.classList.toggle("visible", hasPendingWrites("mealPlan"));
+  if (shoppingDot) shoppingDot.classList.toggle("visible", hasPendingWrites("shopping"));
 }
 
 // Erzwingt das sofortige Absenden aller wartenden Serien-Aktionen (Debounce-
 // Pause wird übersprungen) sowie einen sofortigen Retry-Versuch für Aktionen,
-// die gerade im Backoff auf den nächsten Versuch warten. Wird vom Speichern-
-// Button, vor generatePlan() und beim Minimieren/Schließen der App genutzt.
+// die gerade im Backoff auf den nächsten Versuch warten. Wird vor generatePlan()
+// und beim Minimieren/Schließen der App genutzt (kein manueller Button mehr).
 function flushPendingWrites() {
   Array.from(pwDebounced.keys()).forEach(fireDebouncedWrite);
   pendingWrites.forEach(action => {
@@ -2051,7 +2046,11 @@ function toggleShoppingEntry(kind, id, index) {
     resource: "shopping",
     baseline,
     buildApiFn,
-    applyResult: applyShoppingResult,
+    // Kein Re-Render bei Erfolg: applyOptimisticToggle() (inkl. recomputeProductDerived/
+    // syncSourceToDish/syncIngredientToProduct) spiegelt die serverseitige Logik bereits
+    // vollständig - ein erneutes Anwenden der (nach der Debounce-Pause ggf. bereits
+    // veralteten) Server-Antwort würde die Liste sichtbar "nachträglich" springen lassen.
+    applyResult: () => {},
     onFinalError: (err, entryBaseline) => shoppingFinalErrorHandler(buildApiFn, entryBaseline),
     isNoOp: entry => entry.clickCount % 2 === 0,
   });
