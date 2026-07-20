@@ -38,6 +38,22 @@
   .tab .icon { font-size: 20px; line-height: 1; }
   .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 
+  /* ── Speichern-Status (tippen = ausstehende Änderungen sofort senden) ── */
+  .save-status {
+    position: absolute; top: 6px; right: 8px;
+    display: flex; align-items: center; gap: 4px;
+    font-size: 10px; font-weight: 700; padding: 3px 9px;
+    border-radius: 999px; cursor: pointer; user-select: none;
+    background: var(--accent-bg); color: var(--accent-text);
+    z-index: 101; transition: background 0.15s, color 0.15s;
+  }
+  .save-status.saving { background: var(--surface-lock); color: var(--text-muted); }
+  .save-status .spinner-sm {
+    width: 9px; height: 9px; border: 1.5px solid currentColor; border-top-color: transparent;
+    border-radius: 50%; animation: spin 0.6s linear infinite; display: none;
+  }
+  .save-status.saving .spinner-sm { display: inline-block; }
+
   /* ── Floating toast (status) ──────────────────────────────────  */
   .float-toast {
     position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%) translateY(20px);
@@ -306,6 +322,10 @@
   <div class="tab active" data-panel="plan" onclick="switchTab(this)"><span class="icon">📅</span>Plan</div>
   <div class="tab" data-panel="shopping" onclick="switchTab(this)"><span class="icon">🛒</span>Einkauf</div>
   <div class="tab" data-panel="pantry" onclick="switchTab(this)"><span class="icon">📦</span>Vorräte</div>
+  <div class="save-status" id="save-status" onclick="flushPendingWrites()" title="Tippen, um ausstehende Änderungen sofort zu speichern">
+    <span class="spinner-sm"></span>
+    <span id="save-status-text">Gespeichert ✓</span>
+  </div>
 </nav>
 
 <div class="float-toast" id="float-toast">
@@ -743,6 +763,9 @@ function getMealDisplayName(idx, person, day) {
 
 async function generatePlan() {
   closeDialog();
+  // Ausstehende Plan-Änderungen (z.B. eine noch wartende Reorder-Debounce)
+  // zuerst absenden, bevor der Server den Plan überschreibt.
+  flushPendingWrites();
   document.getElementById("btn-generate").disabled = true;
   showToast("Erstelle neuen Plan...");
   try {
@@ -1792,6 +1815,30 @@ function hasPendingWrites() {
   return pendingWrites.length > 0 || pwDebounced.size > 0;
 }
 
+// Speichern-Status-Pill im Header (siehe <nav class="tabs">): zeigt an, ob
+// gerade etwas im Hintergrund gespeichert wird. Tippen ruft flushPendingWrites().
+function updateSaveIndicator() {
+  const el = document.getElementById("save-status");
+  if (!el) return;
+  const pending = hasPendingWrites();
+  el.classList.toggle("saving", pending);
+  document.getElementById("save-status-text").textContent = pending ? "Speichert…" : "Gespeichert ✓";
+}
+
+// Erzwingt das sofortige Absenden aller wartenden Serien-Aktionen (Debounce-
+// Pause wird übersprungen) sowie einen sofortigen Retry-Versuch für Aktionen,
+// die gerade im Backoff auf den nächsten Versuch warten. Wird vom Speichern-
+// Button, vor generatePlan() und beim Minimieren/Schließen der App genutzt.
+function flushPendingWrites() {
+  Array.from(pwDebounced.keys()).forEach(fireDebouncedWrite);
+  pendingWrites.forEach(action => {
+    if (action.inFlight) return; // läuft schon, kein doppelter Request
+    clearTimeout(action.timer);
+    attemptPendingWrite(action);
+  });
+  updateSaveIndicator();
+}
+
 // Sequenznummer bei Dispatch vergeben (nicht erst bei Antworterhalt) - das ist
 // die Grundlage von "last request wins": zwei Low-Level-Helfer, die auch reine
 // Lesevorgänge (z.B. getShoppingListV2 beim Tab-Wechsel) vor derselben
@@ -1815,6 +1862,7 @@ function runPendingWrite({ resource, apiFn, applyResult, onFinalError, retries =
     inFlight: false, timer: null,
   };
   pendingWrites.push(action);
+  updateSaveIndicator();
   attemptPendingWrite(action);
   return action;
 }
@@ -1824,6 +1872,7 @@ function attemptPendingWrite(action) {
   action.apiFn().then(data => {
     const idx = pendingWrites.indexOf(action);
     if (idx !== -1) pendingWrites.splice(idx, 1);
+    updateSaveIndicator();
     applyIfLatest(action.resource, action.seq, () => action.applyResult(data));
   }).catch(err => {
     action.inFlight = false;
@@ -1833,6 +1882,7 @@ function attemptPendingWrite(action) {
     } else {
       const idx = pendingWrites.indexOf(action);
       if (idx !== -1) pendingWrites.splice(idx, 1);
+      updateSaveIndicator();
       console.error(err);
       action.onFinalError(err);
     }
@@ -1865,6 +1915,7 @@ function scheduleDebouncedWrite({ debounceKey, resource, baseline, buildApiFn, a
   entry.isNoOp = isNoOp || (() => false);
   clearTimeout(entry.timer);
   entry.timer = setTimeout(() => fireDebouncedWrite(debounceKey), delayMs);
+  updateSaveIndicator();
 }
 
 function fireDebouncedWrite(debounceKey) {
@@ -1873,7 +1924,7 @@ function fireDebouncedWrite(debounceKey) {
   pwDebounced.delete(debounceKey);
   clearTimeout(entry.timer);
   clearTimeout(entry.maxWaitTimer);
-  if (entry.isNoOp(entry)) return;
+  if (entry.isNoOp(entry)) { updateSaveIndicator(); return; }
   runPendingWrite({
     resource: entry.resource,
     apiFn: entry.buildApiFn,
@@ -1916,15 +1967,12 @@ function runOptimisticShoppingAction(apiFn, snapshot) {
 }
 
 // Sicherheitsnetz: beim Minimieren/Schließen der Mini App (beforeunload ist in
-// Mobile-WebViews unzuverlässig) noch offene Aktionen sofort nachsenden, statt
-// auf den Retry-Timer zu warten.
+// Mobile-WebViews unzuverlässig) alle ausstehenden Schreibvorgänge - auch noch
+// wartende Serien-Aktionen (Debounce) - sofort nachsenden, statt auf den
+// Debounce-/Retry-Timer zu warten.
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) return;
-  pendingWrites.forEach(action => {
-    if (action.inFlight) return; // läuft schon, kein doppelter Request
-    clearTimeout(action.timer);
-    attemptPendingWrite(action);
-  });
+  flushPendingWrites();
 });
 
 function recomputeProductDerived(product) {
