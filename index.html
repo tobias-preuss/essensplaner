@@ -745,20 +745,12 @@ async function generatePlan() {
   document.getElementById("btn-generate").disabled = true;
   showToast("Erstelle neuen Plan...");
   try {
-    // Gelockte Indizes an API übergeben damit sie nicht überschrieben werden
-    await apiCall("generatePlan", { lockedIndices: [...lockedDays].join(",") });
+    // Gelockte Tage bleiben serverseitig erhalten (Sheet ist die Quelle der Wahrheit)
+    await apiCall("generatePlan");
     const planData = await apiCall("getMealPlan");
-    const newPlan  = planData.mealPlan || [];
-
-    // Gelockte Tage aus altem Plan beibehalten
-    lockedDays.forEach(lockedIdx => {
-      if (mealPlan[lockedIdx] && newPlan[lockedIdx]) {
-        newPlan[lockedIdx] = mealPlan[lockedIdx];
-      }
-    });
-
-    mealPlan  = newPlan;
+    mealPlan  = planData.mealPlan || [];
     dateSlots = planData.mealPlan.map(d => ({ date: d.date, dayOfWeek: d.dayOfWeek }));
+    lockedDays = new Set(mealPlan.map((d,i) => d.isLocked ? i : -1).filter(i => i >= 0));
     renderPlan();
     showSuccess("Neuer Plan erstellt ✓");
   } catch (err) {
@@ -1582,6 +1574,7 @@ async function savePlanOrder() {
       portions: day.portions, note: day.note || "",
       isSplit: day.isSplit || false, customNameTobi: day.customNameTobi || "", customNameNora: day.customNameNora || "",
       portionsTobi: day.portionsTobi, portionsNora: day.portionsNora,
+      isLocked: day.isLocked || false,
     }));
     await apiCall("updateMealOrder", { order: JSON.stringify(order) });
   } catch (err) { showError("Reihenfolge konnte nicht gespeichert werden."); console.error(err); }
@@ -1593,9 +1586,9 @@ async function toggleLock(idx) {
   // isLocked im lokalen State updaten
   if (mealPlan[idx]) mealPlan[idx].isLocked = lockedDays.has(idx);
   renderPlan();
-  // Im Hintergrund in Sheets persistieren
+  // Im Hintergrund in Sheets persistieren (datumsbasiert, nicht index-basiert)
   try {
-    await apiCall("toggleLock", { index: idx });
+    await apiCall("toggleLock", { date: toLocalDateKey(mealPlan[idx].date) });
   } catch (err) {
     // Rollback bei Fehler
     if (lockedDays.has(idx)) lockedDays.delete(idx); else lockedDays.add(idx);
