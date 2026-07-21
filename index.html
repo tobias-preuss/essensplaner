@@ -47,6 +47,18 @@
   }
   .pending-dot.visible { display: block; }
 
+  /* ── Offline-Banner: nur sichtbar, wenn ein Sendeversuch fehlgeschlagen ist
+     UND noch Änderungen ausstehen (siehe updateOfflineBanner). Sticky direkt
+     unter den Tabs, kein Layout-Shift bei Ein-/Ausblenden dank max-height. ── */
+  .offline-banner {
+    position: sticky; top: var(--tab-h); z-index: 90;
+    max-height: 0; overflow: hidden;
+    background: #8B2618; color: #fff;
+    font-size: 12px; font-weight: 600; text-align: center;
+    transition: max-height 0.2s ease, padding 0.2s ease;
+  }
+  .offline-banner.show { max-height: 40px; padding: 8px 12px; }
+
   /* ── Floating toast (status) ──────────────────────────────────  */
   .float-toast {
     position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%) translateY(20px);
@@ -316,6 +328,8 @@
   <div class="tab" data-panel="shopping" onclick="switchTab(this)"><span class="icon">🛒<span class="pending-dot" id="tab-dot-shopping"></span></span>Einkauf</div>
   <div class="tab" data-panel="pantry" onclick="switchTab(this)"><span class="icon">📦</span>Vorräte</div>
 </nav>
+
+<div class="offline-banner" id="offline-banner"><span id="offline-banner-text"></span></div>
 
 <div class="float-toast" id="float-toast">
   <span class="spinner" id="toast-spinner" style="display:none"></span>
@@ -729,6 +743,9 @@ async function loadPlan() {
     if (dateSlots.length === 0) dateSlots = mealPlan.map(d => ({ date: d.date, dayOfWeek: d.dayOfWeek }));
     // Lock-Zustand aus Sheets laden
     lockedDays = new Set(mealPlan.map((d,i) => d.isLocked ? i : -1).filter(i => i >= 0));
+    // Noch nicht bestätigte Outbox-Befehle (z.B. von einem vorherigen Start,
+    // der offline blieb) erneut auf den frisch geladenen Stand anwenden.
+    replayOutboxLocally("mealPlan");
     renderPlan();
     hideToast();
   } catch (err) {
@@ -1771,7 +1788,11 @@ async function preloadShoppingListSilently() {
   const seq = dispatchSeq("shopping");
   try {
     const data = await apiCall("getShoppingListV2");
-    applyIfLatest("shopping", seq, () => { shoppingItems = data.items || []; renderPlan(); });
+    applyIfLatest("shopping", seq, () => {
+      shoppingItems = data.items || [];
+      replayOutboxLocally("shopping");
+      renderPlan();
+    });
   } catch (err) { /* Icons bleiben grau, kein Fehler-Toast nötig für einen Hintergrund-Preload */ }
 }
 
@@ -1782,7 +1803,11 @@ async function loadShoppingList() {
   const seq = dispatchSeq("shopping");
   try {
     const data = await apiCall("getShoppingListV2");
-    applyIfLatest("shopping", seq, () => { shoppingItems = data.items || []; renderShoppingV2(); });
+    applyIfLatest("shopping", seq, () => {
+      shoppingItems = data.items || [];
+      replayOutboxLocally("shopping");
+      renderShoppingV2();
+    });
     hideToast();
   } catch (err) {
     loaded.shopping = false;
@@ -1812,7 +1837,10 @@ function hasPendingWrites(resource) {
   for (const entry of pwDebounced.values()) {
     if (!resource || entry.resource === resource) return true;
   }
-  return false;
+  // Outbox+Commands (siehe weiter unten): deckt sowohl wartende als auch
+  // gerade unterwegs befindliche Befehle ab, solange das alte und das neue
+  // Speicher-System parallel existieren (Übergang bis Schritt 4/5).
+  return outbox.some(cmd => !resource || resourceOfCommandType(cmd.type) === resource);
 }
 
 // Pending-Dots an den Tab-Icons (siehe <nav class="tabs">): rein passiver
@@ -1980,6 +2008,452 @@ document.addEventListener("visibilitychange", () => {
   if (!document.hidden) return;
   flushPendingWrites();
 });
+
+// ════════════════════════════════════════════════════════════════
+// Outbox + Commands (siehe .claude/Plans/2026_07_21_Save_Load_Update.md)
+//
+// Ersetzt schrittweise das "Pending Writes"-Modul oben. Grundidee: jede
+// Änderung wird zu einem absoluten (nicht kippenden), mit einer stabilen ID
+// versehenen Befehl (siehe Befehls-Katalog im Plan-Dokument). Befehle landen
+// SOFORT in einer localStorage-persistierten Warteschlange (überlebt
+// Abstürze/Minimieren) und werden lokal optimistisch angewandt; ein Sender
+// schickt die wartenden Befehle gebündelt (immer nur ein Request gleichzeitig,
+// strikt FIFO) an die applyCommands-Action (Backend siehe gas/Main.js). Nach
+// jeder Serverantwort wird deren kanonischer Stand übernommen und noch
+// wartende Befehle werden erneut lokal angewandt, damit ihre optimistische
+// Wirkung sichtbar bleibt.
+//
+// WICHTIG (Stand Schritt 3): dieses Modul ist bereits voll funktionsfähig,
+// aber noch von KEINER UI-Aktion verdrahtet - alle Schreibpfade rufen
+// weiterhin runPendingWrite()/scheduleDebouncedWrite() (oben) auf. Das
+// Verdrahten (enqueue() an den ca. 10 Call-Sites) sowie das Entfernen des
+// alten Moduls ist Schritt 4. Bis dahin existieren beide Systeme bewusst
+// parallel, damit die App nach jedem einzelnen Schritt lauffähig bleibt.
+// ════════════════════════════════════════════════════════════════
+
+const OUTBOX_STORAGE_KEY    = "essensplaner.outbox.v1";
+const OUTBOX_MAX_JSON_CHARS = 6000; // grobe Obergrenze für den 'commands'-URL-Parameter (GET-basierte API)
+const SENDER_BACKOFF_MS     = [2000, 4000, 8000, 16000, 30000]; // letzter Wert wiederholt sich bei weiteren Fehlversuchen
+const SENDER_HEARTBEAT_MS   = 20000;
+
+function loadOutboxFromStorage() {
+  try {
+    const raw = localStorage.getItem(OUTBOX_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    console.error("loadOutboxFromStorage: konnte Outbox nicht laden", err);
+    return [];
+  }
+}
+
+let outbox = loadOutboxFromStorage();
+let senderInFlight  = false;
+let senderRetryCount = 0;
+let senderTimer      = null;
+let lastSendFailed   = false;
+
+function persistOutbox() {
+  try {
+    localStorage.setItem(OUTBOX_STORAGE_KEY, JSON.stringify(outbox));
+  } catch (err) {
+    // z.B. Safari privater Modus / Speicher voll - Outbox bleibt nur im RAM.
+    // Kein Rückschritt gegenüber vorher (dort gab es gar keine Persistierung),
+    // aber das Absturz-Sicherheitsnetz greift dann nicht.
+    console.error("persistOutbox: konnte Outbox nicht persistieren", err);
+  }
+}
+
+function generateCommandId() {
+  if (window.crypto && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  return `cmd-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function resourceOfCommandType(type) {
+  return type.startsWith("plan.") ? "mealPlan" : "shopping";
+}
+
+function stripLocalOutboxFields(cmd) {
+  const { sending, enqueuedAt, ...rest } = cmd;
+  return rest;
+}
+
+// ── Lokale optimistische Anwendung ──────────────────────────────
+// Mutiert mealPlan/shoppingItems direkt (kein Rendern, kein DOM-Zugriff -
+// das übernimmt der Aufrufer), damit dieselbe Logik sowohl beim Enqueue
+// (sofortige Vorschau) als auch beim Replay wartender Befehle nach einer
+// Serverantwort (siehe runSenderTick) verwendet werden kann.
+
+function findPlanDayByKey(dayKey) {
+  return mealPlan.find(d => toLocalDateKey(d.date) === dayKey);
+}
+
+function applyPlanSetLockLocally(cmd) {
+  const day = findPlanDayByKey(cmd.day);
+  if (!day) return;
+  day.isLocked = !!cmd.value;
+}
+
+function applyPlanSetOrderLocally(cmd) {
+  const orderKeys = cmd.order || [];
+  const byKey = new Map(mealPlan.map(d => [toLocalDateKey(d.date), d]));
+  const reordered = orderKeys.map(k => byKey.get(k)).filter(Boolean);
+  // Nur übernehmen, wenn der Befehl zum aktuell geladenen Plan passt (gleiche
+  // Tage) - sonst (z.B. nach Neu-Generierung) bleibt die aktuelle Reihenfolge
+  // unangetastet, der Befehl wird beim Senden serverseitig ohnehin abgelehnt.
+  if (reordered.length === mealPlan.length && reordered.length === orderKeys.length) {
+    mealPlan.length = 0;
+    reordered.forEach(d => mealPlan.push(d));
+  }
+}
+
+function applyPlanSetMealLocally(cmd) {
+  const day = findPlanDayByKey(cmd.day);
+  if (!day) return;
+  const recipeId   = cmd.recipeId || null;
+  const customName = cmd.customName || "";
+  const person     = cmd.person || null;
+  const recipe     = recipeId ? recipes.find(r => String(r.id) === String(recipeId)) : null;
+
+  if (person === "tobi") {
+    day.isSplit = true;
+    day.customNameTobi = recipe ? recipe.name : customName;
+  } else if (person === "nora") {
+    day.isSplit = true;
+    day.customNameNora = recipe ? recipe.name : customName;
+  } else {
+    day.isSplit      = false;
+    day.recipeId     = recipeId;
+    day.isCustomName = !recipeId;
+    day.recipeName   = recipe ? recipe.name : customName;
+  }
+}
+
+function applyPlanSetPortionsLocally(cmd) {
+  const day = findPlanDayByKey(cmd.day);
+  if (!day) return;
+  const person = cmd.person || null;
+  const value  = Math.max(0, parseInt(cmd.value, 10) || 0);
+
+  if (person === "tobi")      day.portionsTobi = Math.max(1, value);
+  else if (person === "nora") day.portionsNora = Math.max(1, value);
+  else {
+    day.portions   = value;
+    day.isMealPrep = value > 2;
+    day.isReste    = value === 0;
+  }
+}
+
+function applyPlanSetSplitLocally(cmd) {
+  const day = findPlanDayByKey(cmd.day);
+  if (!day) return;
+  const value = !!cmd.value;
+  if (value === day.isSplit) return; // absolut statt kippend (siehe Ursache U1 im Plan-Dokument)
+
+  if (value) {
+    day.isSplit        = true;
+    day.customNameTobi = day.recipeName || "";
+    day.customNameNora = "";
+    day.portionsTobi   = 1;
+    day.portionsNora   = 1;
+  } else {
+    day.isSplit    = false;
+    day.recipeName = day.customNameTobi;
+    day.isCustomName = true;
+    day.recipeId   = null;
+    day.portions   = (day.portionsTobi || 1) + (day.portionsNora || 1);
+  }
+}
+
+// Spiegelt applyOptimisticToggle (oben) 1:1, aber ID- statt indexbasiert
+// (srcId/ingId, siehe Schritt 1 gas/Models.js) und absolut statt kippend.
+// Nutzt bewusst dieselben Helfer (recomputeProductDerived/syncSourceToDish/
+// syncIngredientToProduct) - die kennen nur bereits aufgelöste Objekte,
+// nicht Indizes, und sind daher unverändert wiederverwendbar.
+function applyShopSetDoneLocally(cmd) {
+  const target = cmd.target || {};
+  const value  = !!cmd.value;
+
+  if (target.kind === "product") {
+    const product = shoppingItems.find(i => i.type === "product" && i.id === target.id);
+    if (!product) return;
+    product.sources.forEach(source => { source.done = value; syncSourceToDish(product, source); });
+    recomputeProductDerived(product);
+  } else if (target.kind === "productSource") {
+    const product = shoppingItems.find(i => i.type === "product" && i.id === target.id);
+    if (!product) return;
+    const source = product.sources.find(s => s.srcId === target.srcId);
+    if (!source) return;
+    source.done = value;
+    syncSourceToDish(product, source);
+    recomputeProductDerived(product);
+  } else if (target.kind === "dish") {
+    const dish = shoppingItems.find(i => i.type === "dish" && i.id === target.id);
+    if (!dish) return;
+    dish.ingredients.forEach(ing => { ing.done = value; syncIngredientToProduct(dish, ing); });
+    dish.done = value;
+  } else if (target.kind === "dishIngredient") {
+    const dish = shoppingItems.find(i => i.type === "dish" && i.id === target.id);
+    if (!dish) return;
+    const ing = dish.ingredients.find(i => i.ingId === target.ingId);
+    if (!ing) return;
+    ing.done = value;
+    syncIngredientToProduct(dish, ing);
+    dish.done = dish.ingredients.length > 0 && dish.ingredients.every(i => i.done);
+  }
+}
+
+// Nutzt die bestehende Aggregations-Spiegelung (addIngredientContributionOptimistic,
+// siehe "Manuell hinzufügen" oben) unverändert - die kennt keine srcId-Details,
+// nur Name/Kategorie/Quelle, und bleibt daher gültig.
+function applyShopAddManualLocally(cmd) {
+  addIngredientContributionOptimistic({
+    name:     cmd.name,
+    category: cmd.category || "Sonstiges",
+    unit:     cmd.unit || null,
+    qty:      (cmd.qty === undefined || cmd.qty === null) ? null : cmd.qty,
+    sourceId: null,
+    label:    "manuell",
+    qtyText:  cmd.qtyText || "",
+  });
+}
+
+function applyShopSetQtyTextLocally(cmd) {
+  const product = shoppingItems.find(i => i.type === "product" && i.id === cmd.id);
+  if (!product) return;
+  const source = product.sources.find(s => s.srcId === cmd.srcId);
+  if (!source) return;
+  source.qtyText = cmd.qtyText || "";
+  recomputeProductDerived(product);
+}
+
+function applyShopDeleteEntryLocally(cmd) {
+  if (cmd.kind === "product") {
+    shoppingItems = shoppingItems.filter(i => !(i.type === "product" && i.id === cmd.id));
+    shoppingItems.filter(i => i.type === "dish").forEach(dish => {
+      dish.ingredients = dish.ingredients.filter(ing => ing.productId !== cmd.id);
+      dish.done = dish.ingredients.length > 0 && dish.ingredients.every(ing => ing.done);
+    });
+  } else if (cmd.kind === "dish") {
+    shoppingItems = shoppingItems.filter(i => !(i.type === "dish" && i.id === cmd.id));
+    shoppingItems.filter(i => i.type === "product").forEach(product => {
+      product.sources = product.sources.filter(s => s.sourceId !== cmd.id);
+      recomputeProductDerived(product);
+    });
+  }
+}
+
+function applyShopDeleteBulkLocally(cmd) {
+  if (cmd.mode === "all") {
+    shoppingItems = [];
+  } else if (cmd.mode === "done") {
+    shoppingItems = shoppingItems.filter(i => (i.type === "product" ? !i.isDone : !i.done));
+    shoppingItems.filter(i => i.type === "product").forEach(p => {
+      p.sources = p.sources.filter(s => !s.done);
+      recomputeProductDerived(p);
+    });
+    shoppingItems.filter(i => i.type === "dish").forEach(d => {
+      d.ingredients = d.ingredients.filter(ing => !ing.done);
+      d.done = d.ingredients.length > 0 && d.ingredients.every(ing => ing.done);
+    });
+  }
+}
+
+// shop.addDish bekommt bewusst KEINEN lokalen Handler: addDishFromRecipe
+// kann serverseitig in ein bestehendes offenes Produkt/Gericht mergen
+// (Aggregations-Regel), die tatsächlich betroffene ID steht vorher nicht
+// fest - eine lokale Vorhersage wäre unzuverlässig (siehe Schritt-2-
+// Entscheidung im Plan-Dokument). Die UI zeigt bis zur Serverantwort einen
+// Lade-Zustand statt einer optimistischen Vorschau (identisch zum
+// bisherigen Verhalten von submitAddShoppingModal oben).
+const LOCAL_COMMAND_HANDLERS = {
+  "plan.setLock":     applyPlanSetLockLocally,
+  "plan.setOrder":    applyPlanSetOrderLocally,
+  "plan.setMeal":     applyPlanSetMealLocally,
+  "plan.setPortions": applyPlanSetPortionsLocally,
+  "plan.setSplit":    applyPlanSetSplitLocally,
+  "shop.setDone":     applyShopSetDoneLocally,
+  "shop.addManual":   applyShopAddManualLocally,
+  "shop.setQtyText":  applyShopSetQtyTextLocally,
+  "shop.deleteEntry": applyShopDeleteEntryLocally,
+  "shop.deleteBulk":  applyShopDeleteBulkLocally,
+};
+
+function applyCommandLocally(cmd) {
+  const handler = LOCAL_COMMAND_HANDLERS[cmd.type];
+  if (handler) handler(cmd);
+}
+
+// Wendet alle noch wartenden (auch gerade unterwegs befindlichen) Befehle
+// einer Ressource erneut lokal an - für den Seitenstart (Outbox kann von
+// einer vorherigen Sitzung noch Einträge enthalten, bevor die frischen
+// Plan-/Einkaufsliste-Daten geladen werden) sowie nach jeder Serverantwort.
+function replayOutboxLocally(resource) {
+  outbox.filter(cmd => resourceOfCommandType(cmd.type) === resource).forEach(applyCommandLocally);
+}
+
+// ── Kollabieren wartender Befehle ───────────────────────────────
+// Für Befehlstypen mit eindeutigem Ziel wird ein bereits wartender (noch
+// nicht gesendeter) Befehl gleichen Typs auf dasselbe Ziel ERSETZT statt
+// zusätzlich angehängt - z.B. kollabieren 5 schnelle Drag&Drops zu einem
+// finalen plan.setOrder, mehrfaches An-/Abhaken desselben Eintrags zu einem
+// finalen shop.setDone. Ein bereits gesendeter (sending=true) Befehl wird
+// nie verändert, nur durch die tatsächliche Serverantwort ersetzt.
+function commandCollapseKey(cmd) {
+  switch (cmd.type) {
+    case "plan.setOrder":    return "plan.setOrder";
+    case "plan.setLock":     return `plan.setLock:${cmd.day}`;
+    case "plan.setPortions": return `plan.setPortions:${cmd.day}:${cmd.person || ""}`;
+    case "shop.setDone": {
+      const t = cmd.target || {};
+      return `shop.setDone:${t.kind}:${t.id}:${t.srcId || t.ingId || ""}`;
+    }
+    case "shop.setQtyText": return `shop.setQtyText:${cmd.id}:${cmd.srcId}`;
+    default: return null; // kein Kollabieren für diesen Typ (z.B. addManual, deleteEntry)
+  }
+}
+
+/**
+ * Reiht einen Befehl ein: lokale optimistische Anwendung + Rendern SOFORT,
+ * Persistierung + Versand asynchron im Hintergrund.
+ * @param {object} command - { type, ...Nutzdaten }; id/enqueuedAt werden hier vergeben
+ */
+function enqueue(command) {
+  const cmd = Object.assign({ id: generateCommandId(), enqueuedAt: Date.now() }, command);
+
+  applyCommandLocally(cmd);
+  if (resourceOfCommandType(cmd.type) === "mealPlan") renderPlan();
+  else renderShoppingV2();
+
+  const collapseKey = commandCollapseKey(cmd);
+  const existingIdx = collapseKey
+    ? outbox.findIndex(entry => !entry.sending && commandCollapseKey(entry) === collapseKey)
+    : -1;
+
+  if (existingIdx !== -1) outbox[existingIdx] = cmd;
+  else outbox.push(cmd);
+
+  persistOutbox();
+  updateSaveIndicator();
+  wakeSender();
+}
+
+// ── Sender ───────────────────────────────────────────────────────
+// Immer nur ein Request gleichzeitig (senderInFlight-Guard), strikt FIFO
+// innerhalb eines Batches. Ein Batch bleibt unter OUTBOX_MAX_JSON_CHARS,
+// der Rest folgt automatisch im nächsten Tick (siehe selectNextBatch).
+
+function selectNextBatch() {
+  const pending = outbox.filter(cmd => !cmd.sending);
+  const batch = [];
+  let chars = 2; // "[]"
+  for (const cmd of pending) {
+    const addedChars = JSON.stringify(stripLocalOutboxFields(cmd)).length + 1; // + Komma
+    if (batch.length > 0 && chars + addedChars > OUTBOX_MAX_JSON_CHARS) break;
+    batch.push(cmd);
+    chars += addedChars;
+  }
+  return batch;
+}
+
+function wakeSender() {
+  if (senderTimer) return; // schon ein Lauf geplant
+  senderTimer = setTimeout(runSenderTick, 0);
+}
+
+async function runSenderTick() {
+  senderTimer = null;
+  if (senderInFlight) return; // läuft schon einer - der schedult sich am Ende selbst weiter
+
+  const batch = selectNextBatch();
+  if (!batch.length) {
+    lastSendFailed = false;
+    updateOfflineBanner();
+    return;
+  }
+
+  batch.forEach(cmd => { cmd.sending = true; });
+  senderInFlight = true;
+
+  try {
+    const res = await apiCall("applyCommands", { commands: JSON.stringify(batch.map(stripLocalOutboxFields)) });
+
+    const handledIds = new Set([...(res.applied || []), ...(res.rejected || []).map(r => r.id)]);
+    outbox = outbox.filter(cmd => !handledIds.has(cmd.id));
+
+    if (res.mealPlan) {
+      mealPlan  = res.mealPlan;
+      dateSlots = res.mealPlan.map(d => ({ date: d.date, dayOfWeek: d.dayOfWeek }));
+      lockedDays = new Set(mealPlan.map((d, i) => d.isLocked ? i : -1).filter(i => i >= 0));
+    }
+    if (res.shopping) shoppingItems = res.shopping.items || [];
+
+    // Noch wartende (z.B. während des Requests neu hinzugekommene) Befehle
+    // erneut auf den jetzt kanonischen Stand anwenden, damit ihre
+    // optimistische Wirkung sichtbar bleibt (kein "Zurückspringen").
+    outbox.forEach(applyCommandLocally);
+    renderPlan();
+    renderShoppingV2();
+
+    if (res.rejected && res.rejected.length) {
+      showError("Eine Änderung konnte nicht übernommen werden.");
+    }
+
+    senderRetryCount = 0;
+    lastSendFailed = false;
+  } catch (err) {
+    console.error("runSenderTick: Senden fehlgeschlagen", err);
+    batch.forEach(cmd => { cmd.sending = false; }); // erneuter Versuch möglich
+    lastSendFailed = true;
+    senderRetryCount++;
+  } finally {
+    senderInFlight = false;
+    persistOutbox();
+    updateSaveIndicator();
+    updateOfflineBanner();
+  }
+
+  if (outbox.length) {
+    if (lastSendFailed) {
+      const delay = SENDER_BACKOFF_MS[Math.min(senderRetryCount - 1, SENDER_BACKOFF_MS.length - 1)];
+      senderTimer = setTimeout(runSenderTick, delay);
+    } else {
+      wakeSender(); // sofort weiter, falls noch mehr wartet (z.B. Rest eines zu großen Batches)
+    }
+  }
+}
+
+// Erscheint nur, wenn ein Sendeversuch fehlgeschlagen ist UND etwas
+// aussteht - im Normalbetrieb (Erfolg oder leere Outbox) unsichtbar.
+function updateOfflineBanner() {
+  const banner = document.getElementById("offline-banner");
+  if (!banner) return;
+  const show = lastSendFailed && outbox.length > 0;
+  banner.classList.toggle("show", show);
+  if (show) {
+    const n = outbox.length;
+    document.getElementById("offline-banner-text").textContent =
+      `Keine Verbindung · ${n} ${n === 1 ? "Änderung wird" : "Änderungen werden"} nachgesendet`;
+  }
+}
+
+window.addEventListener("online", wakeSender);
+// Sowohl beim Verlassen (letzter Versuch vor dem möglichen Einfrieren der
+// WebView) als auch beim Zurückkehren (z.B. nach Wiederverbindung).
+document.addEventListener("visibilitychange", wakeSender);
+setInterval(() => { if (outbox.length) wakeSender(); }, SENDER_HEARTBEAT_MS);
+
+// Versucht beim Start zuerst, eine aus einer vorherigen Sitzung übrig
+// gebliebene Outbox loszuwerden (z.B. App wurde offline geschlossen),
+// BEVOR der frische Plan-/Einkaufslisten-Stand geladen wird. 'sending' kann
+// nach einem Neustart nie mehr zutreffen (kein Request überlebt das) und
+// wird deshalb zurückgesetzt.
+async function bootstrapOutbox() {
+  if (!outbox.length) return;
+  outbox.forEach(cmd => { cmd.sending = false; });
+  persistOutbox();
+  await runSenderTick();
+}
 
 function recomputeProductDerived(product) {
   product.isDone  = product.sources.length > 0 && product.sources.every(s => s.done);
@@ -2247,9 +2721,13 @@ function switchTab(el) {
   }
 }
 
-loaded.plan = true;
-loadPlan();
-preloadShoppingListSilently();
+// Erst die Outbox einer evtl. vorherigen (offline beendeten) Sitzung
+// loszuwerden versuchen, dann den frischen Stand laden (siehe bootstrapOutbox).
+bootstrapOutbox().finally(() => {
+  loaded.plan = true;
+  loadPlan();
+  preloadShoppingListSilently();
+});
 </script>
 </body>
 </html>
