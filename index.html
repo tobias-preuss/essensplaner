@@ -1474,9 +1474,14 @@ function setupSortable(container) {
       const unlockedContents = mealPlan
         .filter((day, i) => !day.isLocked && i !== oldIdx);
 
+      // insertAt = Anzahl ungelockter POSITIONEN (nicht Inhalte) vor newIdx im
+      // ursprünglichen mealPlan. oldIdx zählt hier bewusst MIT, wenn es < newIdx
+      // ist: seine Position war schon immer eine reguläre unlocked-Position im
+      // Zielbereich, unabhängig davon, dass ihr Inhalt gerade wegzieht (ein
+      // "if (i === oldIdx) continue;" hier wäre ein Off-by-One bei Vorwärts-
+      // Verschiebungen - die Zielposition würde einen Slot zu früh landen).
       let insertAt = 0;
       for (let i = 0; i < newIdx; i++) {
-        if (i === oldIdx) continue;
         if (!mealPlan[i].isLocked) insertAt++;
       }
       unlockedContents.splice(insertAt, 0, movedContent);
