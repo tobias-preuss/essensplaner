@@ -559,7 +559,6 @@ function normalizeCategoryClient(raw) {
 // ── State ──────────────────────────────────────────────────────
 let mealPlan       = [];
 let dateSlots      = [];
-let lockedDays     = new Set();
 let shoppingItems  = [];
 let shoppingSortMode = localStorage.getItem("shoppingSortMode") || "combined"; // "category" | "alpha" | "combined"
 let pantryItems    = [];
@@ -741,8 +740,6 @@ async function loadPlan() {
     mealPlan = planData.mealPlan || [];
     recipes  = recipeData.recipes || [];
     if (dateSlots.length === 0) dateSlots = mealPlan.map(d => ({ date: d.date, dayOfWeek: d.dayOfWeek }));
-    // Lock-Zustand aus Sheets laden
-    lockedDays = new Set(mealPlan.map((d,i) => d.isLocked ? i : -1).filter(i => i >= 0));
     // Noch nicht bestätigte Outbox-Befehle (z.B. von einem vorherigen Start,
     // der offline blieb) erneut auf den frisch geladenen Stand anwenden.
     replayOutboxLocally("mealPlan");
@@ -769,9 +766,10 @@ function getMealDisplayName(idx, person, day) {
 
 async function generatePlan() {
   closeDialog();
-  // Ausstehende Plan-Änderungen (z.B. eine noch wartende Reorder-Debounce)
-  // zuerst absenden, bevor der Server den Plan überschreibt.
-  flushPendingWrites();
+  // Ausstehende Plan-Änderungen zuerst absenden, bevor der Server den Plan
+  // überschreibt (sonst würden sie beim nächsten Sync unnötig gegen den
+  // schon überholten alten Stand anlaufen).
+  await flushOutbox();
   document.getElementById("btn-generate").disabled = true;
   showToast("Erstelle neuen Plan...");
   try {
@@ -780,7 +778,6 @@ async function generatePlan() {
     const planData = await apiCall("getMealPlan");
     mealPlan  = planData.mealPlan || [];
     dateSlots = planData.mealPlan.map(d => ({ date: d.date, dayOfWeek: d.dayOfWeek }));
-    lockedDays = new Set(mealPlan.map((d,i) => d.isLocked ? i : -1).filter(i => i >= 0));
     renderPlan();
     showSuccess("Neuer Plan erstellt ✓");
   } catch (err) {
@@ -791,7 +788,12 @@ async function generatePlan() {
   }
 }
 
-function regenerateDay(idx, person) {
+// Läuft bewusst AUSSERHALB der Outbox (siehe .claude/Plans/2026_07_21_Save_Load_Update.md,
+// Schritt-2-Entscheidung): nicht-deterministisch (würfelt ein neues Gericht),
+// ein automatischer Retry würde bei Zeitüberschreitung etwas ANDERES würfeln
+// als das, was der Nutzer als fehlgeschlagen sah. Der "Erneut"-Button im
+// Fehler-Toast bleibt die einzige Wiederholung, bewusst manuell ausgelöst.
+async function regenerateDay(idx, person) {
   const key = person ? `${idx}-${person}` : `${idx}`;
   regeneratingKeys.add(key);
   renderPlan(); // zeigt Ladeindikator im Namen
@@ -800,37 +802,33 @@ function regenerateDay(idx, person) {
   const params = { index: idx };
   if (person) params.person = person;
 
-  runPendingWrite({
-    resource: "mealPlan",
-    apiFn: () => apiCall("regenerateSingleDay", params),
-    applyResult: data => {
-      // Ergebnis korrekt in State schreiben
-      const updated = data.day || {};
-      if (person === "tobi") {
-        mealPlan[idx].customNameTobi = updated.recipeName || updated.customNameTobi || "";
-      } else if (person === "nora") {
-        mealPlan[idx].customNameNora = updated.recipeName || updated.customNameNora || "";
-      } else {
-        mealPlan[idx] = { ...mealPlan[idx], ...updated };
-      }
+  try {
+    const data = await apiCall("regenerateSingleDay", params);
+    const updated = data.day || {};
+    if (person === "tobi") {
+      mealPlan[idx].customNameTobi = updated.recipeName || updated.customNameTobi || "";
+    } else if (person === "nora") {
+      mealPlan[idx].customNameNora = updated.recipeName || updated.customNameNora || "";
+    } else {
+      mealPlan[idx] = { ...mealPlan[idx], ...updated };
+    }
 
-      regeneratingKeys.delete(key);
-      renderPlan();
+    regeneratingKeys.delete(key);
+    renderPlan();
 
-      const card = document.getElementById(`day-wrap-${idx}`);
-      if (card) {
-        card.classList.remove("flash"); void card.offsetWidth;
-        card.classList.add("flash");
-        setTimeout(() => card.classList.remove("flash"), 1800);
-      }
-      showSuccess("Gericht aktualisiert ✓");
-    },
-    onFinalError: () => {
-      regeneratingKeys.delete(key);
-      renderPlan();
-      showErrorWithRetry("Konnte Gericht nicht ändern.", () => regenerateDay(idx, person));
-    },
-  });
+    const card = document.getElementById(`day-wrap-${idx}`);
+    if (card) {
+      card.classList.remove("flash"); void card.offsetWidth;
+      card.classList.add("flash");
+      setTimeout(() => card.classList.remove("flash"), 1800);
+    }
+    showSuccess("Gericht aktualisiert ✓");
+  } catch (err) {
+    regeneratingKeys.delete(key);
+    renderPlan();
+    showErrorWithRetry("Konnte Gericht nicht ändern.", () => regenerateDay(idx, person));
+    console.error(err);
+  }
 }
 
 // ── Zur Einkaufsliste hinzufügen (🛒-Popup) ─────────────────────
@@ -909,24 +907,20 @@ function submitAddShoppingModal() {
   closeAddShoppingModal();
   if (!selectedNames.length) return;
 
+  // Kein lokales optimistisches Preview (siehe applyCommandLocally/shop.addDish
+  // im Outbox-Modul: die serverseitige Aggregation kann in ein bestehendes
+  // offenes Produkt/Gericht mergen, die tatsächlich betroffene ID steht
+  // vorher nicht fest) - Ladezustand bis zur Serverantwort.
   showToast("Füge zur Einkaufsliste hinzu...");
-  runPendingWrite({
-    resource: "shopping",
-    apiFn: () => apiCall("addDishToShoppingList", {
-      recipeId:            ctx.recipeId,
-      portions:             ctx.portions,
-      selectedIngredients: JSON.stringify(selectedNames),
-      addDishEntry:         addDishEntry ? "true" : "false",
-      mealDate:             ctx.mealDate,
-      ...(Object.keys(qtyTexts).length ? { qtyTexts: JSON.stringify(qtyTexts) } : {}),
-    }),
-    applyResult: data => {
-      shoppingItems = data.items || [];
-      renderShoppingV2();
-      renderPlan();
-      showSuccess("Zur Einkaufsliste hinzugefügt ✓");
-    },
-    onFinalError: () => showError("Konnte nicht hinzugefügt werden."),
+  enqueue({
+    type: "shop.addDish",
+    recipeId: ctx.recipeId,
+    portions: ctx.portions,
+    ingredients: selectedNames,
+    addDishEntry,
+    mealDate: ctx.mealDate,
+    qtyTexts,
+    _successMessage: "Zur Einkaufsliste hinzugefügt ✓",
   });
 }
 
@@ -1037,22 +1031,21 @@ function submitManualAddModal() {
   const qtyText = document.getElementById("manual-add-qtytext").value.trim();
   closeManualAddModal();
 
-  const snapshot = structuredClone(shoppingItems);
-  addIngredientContributionOptimistic({ name, category, unit: null, qty: null, sourceId: null, label: "manuell", qtyText });
-  renderShoppingV2();
-
-  runOptimisticShoppingAction(() => apiCall("addManualItem", { name, category, qtyText }), snapshot);
+  enqueue({ type: "shop.addManual", name, category, qtyText });
 }
 
 // ── Menge bearbeiten (Stift-Icon) ────────────────────────────────
+// Index wird nur beim ÖFFNEN aufgelöst (Klickzeitpunkt ist die Liste noch
+// exakt im gerade gerenderten Zustand) - ab hier läuft alles über die
+// stabile srcId, nicht mehr über die Array-Position (siehe Schritt 1).
 let qtyEditProductId = null;
-let qtyEditSourceIndex = null;
+let qtyEditSrcId = null;
 function openQtyEditModal(productId, sourceIndex) {
   const product = shoppingItems.find(i => i.id === productId);
   const source = product && product.sources[sourceIndex];
   if (!source) return;
   qtyEditProductId = productId;
-  qtyEditSourceIndex = sourceIndex;
+  qtyEditSrcId = source.srcId;
   const input = document.getElementById("qty-edit-input");
   input.value = source.qtyText || "";
   document.getElementById("qty-edit-modal").classList.add("open");
@@ -1064,21 +1057,12 @@ function closeQtyEditModalOnOverlay(e) {
 }
 function submitQtyEditModal() {
   const id = qtyEditProductId;
-  const sourceIndex = qtyEditSourceIndex;
+  const srcId = qtyEditSrcId;
   const qtyText = document.getElementById("qty-edit-input").value.trim();
   closeQtyEditModal();
-  if (!id || sourceIndex === null) return;
+  if (!id || !srcId) return;
 
-  const product = shoppingItems.find(i => i.id === id);
-  const source = product && product.sources[sourceIndex];
-  if (!source) return;
-
-  const snapshot = structuredClone(shoppingItems);
-  source.qtyText = qtyText;
-  recomputeProductDerived(product);
-  renderShoppingV2();
-
-  runOptimisticShoppingAction(() => apiCall("setSourceQtyText", { id, sourceIndex, qtyText }), snapshot, () => {});
+  enqueue({ type: "shop.setQtyText", id, srcId, qtyText });
 }
 
 // ── Einkaufsliste sortieren (Popup) ─────────────────────────────
@@ -1105,28 +1089,9 @@ function closeDeleteShoppingSheet(event) {
   if (event && event.target !== document.getElementById("delete-shopping-sheet")) return;
   document.getElementById("delete-shopping-sheet").classList.remove("open");
 }
-// Spiegelt ShoppingListState.deleteDoneItems/clearAll (gas/Models.js) im Client.
-function applyOptimisticDelete(mode) {
-  if (mode === "all") { shoppingItems = []; return; }
-
-  shoppingItems = shoppingItems.filter(item => item.type === "product" ? !item.isDone : !item.done);
-  shoppingItems.forEach(item => {
-    if (item.type === "product") {
-      item.sources = item.sources.filter(s => !s.done);
-      recomputeProductDerived(item);
-    } else {
-      item.ingredients = item.ingredients.filter(ing => !ing.done);
-      item.done = item.ingredients.length > 0 && item.ingredients.every(i => i.done);
-    }
-  });
-}
-
 function submitDeleteShopping(mode) {
   closeDeleteShoppingSheet();
-  const snapshot = structuredClone(shoppingItems);
-  applyOptimisticDelete(mode);
-  renderShoppingV2();
-  runOptimisticShoppingAction(() => apiCall("deleteShoppingItems", { mode }), snapshot, () => {});
+  enqueue({ type: "shop.deleteBulk", mode });
 }
 
 // ── Einzeleintrag löschen (Swipe nach links) ────────────────────
@@ -1142,31 +1107,12 @@ function closeDeleteEntryConfirm() {
   document.getElementById("confirm-delete-entry-dialog").classList.remove("open");
   deleteEntryCtx = null;
 }
-// Spiegelt ShoppingListState.deleteEntry (gas/Models.js) im Client.
-function applyOptimisticSingleDelete(kind, id) {
-  if (kind === "product") {
-    shoppingItems = shoppingItems.filter(item => !(item.type === "product" && item.id === id));
-    shoppingItems.filter(i => i.type === "dish").forEach(dish => {
-      dish.ingredients = dish.ingredients.filter(ing => ing.productId !== id);
-      dish.done = dish.ingredients.length > 0 && dish.ingredients.every(ing => ing.done);
-    });
-  } else if (kind === "dish") {
-    shoppingItems = shoppingItems.filter(item => !(item.type === "dish" && item.id === id));
-    shoppingItems.filter(i => i.type === "product").forEach(product => {
-      product.sources = product.sources.filter(source => source.sourceId !== id);
-      recomputeProductDerived(product);
-    });
-  }
-}
 function confirmDeleteEntry() {
   const ctx = deleteEntryCtx;
   closeDeleteEntryConfirm();
   if (!ctx) return;
 
-  const snapshot = structuredClone(shoppingItems);
-  applyOptimisticSingleDelete(ctx.kind, ctx.id);
-  renderShoppingV2();
-  runOptimisticShoppingAction(() => apiCall("deleteShoppingEntry", { kind: ctx.kind, id: ctx.id }), snapshot, () => {});
+  enqueue({ type: "shop.deleteEntry", kind: ctx.kind, id: ctx.id });
 }
 
 // ── Skeleton-Platzhalter beim ersten Laden ──────────────────────
@@ -1222,7 +1168,7 @@ function renderPlan() {
 function buildDayCard(day, idx, slot) {
   const date = new Date(slot.date);
   const dow  = slot.dayOfWeek;
-  const isLocked = lockedDays.has(idx);
+  const isLocked = day.isLocked;
   const isExpanded = expandedIdx === idx;
   const isToday = toLocalDateKey(date) === toLocalDateKey(new Date());
 
@@ -1396,7 +1342,7 @@ function toggleExpand(idx) {
 
 // ── Edit Modal ─────────────────────────────────────────────────
 function openEditModal(idx, person) {
-  if (lockedDays.has(idx)) return;
+  if (mealPlan[idx]?.isLocked) return;
   editModalCtx = { idx, person };
 
   const day = mealPlan[idx];
@@ -1451,116 +1397,40 @@ function submitEditModal(recipeId) {
   applyEditModalChange(ctx, name, recipeId);
 }
 
-// Aus submitEditModal ausgelagert, damit ein Retry nach endgültigem Fehlschlag
-// nicht vom (zwischenzeitlich evtl. schon wieder anders befüllten) Modal-DOM
-// abhängt, sondern die ursprünglichen Werte direkt erneut verwendet.
 function applyEditModalChange(ctx, name, recipeId) {
-  const snapshot = structuredClone(mealPlan);
-
-  // Optimistic UI: sofort lokal updaten
   const day = mealPlan[ctx.idx];
-  if (ctx.person === "tobi") day.customNameTobi = name;
-  else if (ctx.person === "nora") day.customNameNora = name;
-  else { day.recipeName = name; day.isCustomName = !recipeId; }
-  renderPlan();
-  showToast("Speichere...");
-
-  const params = { index: ctx.idx, customName: name };
-  if (recipeId) params.recipeId = recipeId;
-  if (ctx.person) params.person = ctx.person;
-
-  runPendingWrite({
-    resource: "mealPlan",
-    apiFn: () => apiCall("setMealForDay", params),
-    applyResult: data => {
-      mealPlan[ctx.idx] = { ...mealPlan[ctx.idx], ...data.day };
-      renderPlan();
-      showSuccess("Gespeichert ✓");
-    },
-    onFinalError: () => {
-      mealPlan = snapshot;
-      renderPlan();
-      showErrorWithRetry("Konnte nicht speichern.", () => applyEditModalChange(ctx, name, recipeId));
-    },
+  if (!day) return;
+  enqueue({
+    type: "plan.setMeal",
+    day: toLocalDateKey(day.date),
+    person: ctx.person || undefined,
+    recipeId: recipeId || undefined,
+    customName: name,
+    _successMessage: "Gespeichert ✓",
   });
 }
 
-// ── Split Toggle (optimistic) ────────────────────────────────────
+// ── Split Toggle ───────────────────────────────────────────────
 function toggleSplit(idx) {
-  const snapshot = structuredClone(mealPlan);
   const day = mealPlan[idx];
-
-  // Optimistic lokale Vorschau
-  if (!day.isSplit) {
-    day.isSplit = true;
-    day.customNameTobi = day.recipeName || "";
-    day.customNameNora = "";
-    day.portionsTobi = 1;
-    day.portionsNora = 1;
-  } else {
-    day.isSplit = false;
-    day.recipeName = day.customNameTobi;
-    day.isCustomName = true;
-    day.portions = (day.portionsTobi||1) + (day.portionsNora||1);
-  }
-  renderPlan();
-  showToast("Speichere...");
-
-  runPendingWrite({
-    resource: "mealPlan",
-    apiFn: () => apiCall("toggleSplit", { index: idx }),
-    applyResult: data => {
-      mealPlan[idx] = { ...mealPlan[idx], ...data.day };
-      renderPlan();
-      showSuccess("Aktualisiert ✓");
-    },
-    onFinalError: () => {
-      mealPlan = snapshot;
-      renderPlan();
-      showErrorWithRetry("Konnte nicht ändern.", () => toggleSplit(idx));
-    },
-  });
+  if (!day) return;
+  enqueue({ type: "plan.setSplit", day: toLocalDateKey(day.date), value: !day.isSplit, _successMessage: "Aktualisiert ✓" });
 }
 
-// ── Stepper (optimistic) ─────────────────────────────────────────
+// ── Stepper ───────────────────────────────────────────────────
 function changePax(idx, delta) {
-  const snapshot = structuredClone(mealPlan);
-  const newVal = Math.max(0, mealPlan[idx].portions + delta);
-  mealPlan[idx].portions = newVal;
-  mealPlan[idx].isMealPrep = newVal > 2;
-  mealPlan[idx].isReste = newVal === 0;
-  document.getElementById(`pax-${idx}`).textContent = newVal;
-  renderPlan();
-
-  runPendingWrite({
-    resource: "mealPlan",
-    apiFn: () => apiCall("setPortions", { index: idx, value: newVal }),
-    applyResult: data => { mealPlan[idx] = { ...mealPlan[idx], ...data.day }; renderPlan(); },
-    onFinalError: () => {
-      mealPlan = snapshot;
-      renderPlan();
-      showErrorWithRetry("Konnte nicht speichern.", () => changePax(idx, delta));
-    },
-  });
+  const day = mealPlan[idx];
+  if (!day) return;
+  const newVal = Math.max(0, day.portions + delta);
+  enqueue({ type: "plan.setPortions", day: toLocalDateKey(day.date), value: newVal });
 }
 
 function changePersonPax(idx, person, delta) {
-  const snapshot = structuredClone(mealPlan);
+  const day = mealPlan[idx];
+  if (!day) return;
   const key = person === "tobi" ? "portionsTobi" : "portionsNora";
-  const newVal = Math.max(1, mealPlan[idx][key] + delta);
-  mealPlan[idx][key] = newVal;
-  document.getElementById(`pax-${idx}-${person}`).textContent = newVal;
-
-  runPendingWrite({
-    resource: "mealPlan",
-    apiFn: () => apiCall("setPortions", { index: idx, person, value: newVal }),
-    applyResult: data => { if (data.day) mealPlan[idx] = { ...mealPlan[idx], ...data.day }; },
-    onFinalError: () => {
-      mealPlan = snapshot;
-      renderPlan();
-      showErrorWithRetry("Konnte nicht speichern.", () => changePersonPax(idx, person, delta));
-    },
-  });
+  const newVal = Math.max(1, day[key] + delta);
+  enqueue({ type: "plan.setPortions", day: toLocalDateKey(day.date), person, value: newVal });
 }
 
 // ── Sortable mit Lock + Undo ─────────────────────────────────────
@@ -1576,13 +1446,13 @@ function setupSortable(container) {
 
     onStart(evt) {
       const idx = parseInt(evt.item.dataset.idx, 10);
-      if (lockedDays.has(idx)) { evt.preventDefault(); return false; }
+      if (mealPlan[idx]?.isLocked) { evt.preventDefault(); return false; }
     },
     onMove(evt) {
       const draggedIdx = parseInt(evt.dragged.dataset.idx, 10);
       const targetIdx  = parseInt(evt.related?.dataset.idx ?? "-1", 10);
-      if (lockedDays.has(draggedIdx)) return false;
-      if (targetIdx >= 0 && lockedDays.has(targetIdx)) return false;
+      if (mealPlan[draggedIdx]?.isLocked) return false;
+      if (targetIdx >= 0 && mealPlan[targetIdx]?.isLocked) return false;
       return true;
     },
     onEnd(evt) {
@@ -1599,23 +1469,21 @@ function setupSortable(container) {
       // Gelockte Tage sind fixe Slots (Datum UND Inhalt bleiben unverändert an ihrer
       // Position) - nur die Inhalte der NICHT gelockten Tage werden neu angeordnet und
       // "fließen" dabei um gelockte Tage herum, statt sie zu verdrängen.
-      const lockedIndices = new Set(lockedDays);
       const movedContent = mealPlan[oldIdx];
 
       const unlockedContents = mealPlan
-        .filter((day, i) => !lockedIndices.has(i) && i !== oldIdx);
+        .filter((day, i) => !day.isLocked && i !== oldIdx);
 
       let insertAt = 0;
       for (let i = 0; i < newIdx; i++) {
         if (i === oldIdx) continue;
-        if (!lockedIndices.has(i)) insertAt++;
+        if (!mealPlan[i].isLocked) insertAt++;
       }
       unlockedContents.splice(insertAt, 0, movedContent);
 
       let cursor = 0;
-      mealPlan = mealPlan.map((day, i) => lockedIndices.has(i) ? day : unlockedContents[cursor++]);
+      mealPlan = mealPlan.map((day, i) => day.isLocked ? day : unlockedContents[cursor++]);
 
-      // lockedDays bleibt unverändert: gelockte Indizes verschieben sich per Definition nicht mehr.
       expandedIdx = null;
       renderPlan();
       showUndoToast("Reihenfolge geändert");
@@ -1649,57 +1517,20 @@ function undoLastChange() {
 
 // Schickt nur die Reihenfolge (Datums-Keys, gleiches Format wie toggleLock),
 // nicht den vollen Tages-Inhalt - Inhalt kommt serverseitig immer frisch aus
-// dem Sheet (siehe updateMealOrder-Handler). Mehrere schnelle Reorders
-// kollabieren dank scheduleDebouncedWrite zu einem Request mit dem finalen
-// Stand statt sich gegenseitig mit veralteten Snapshots zu überschreiben.
+// dem Sheet (siehe applyPlanSetOrder-Handler in gas/Main.js). Mehrere schnelle
+// Reorders kollabieren dank enqueue()/commandCollapseKey zu einem Befehl mit
+// dem finalen Stand (siehe Outbox-Modul weiter unten) - kein Debounce-Timer
+// mehr nötig, die vorherige "Herkunfts-Identität"-Problematik (dateSlots
+// zurücksetzen nach dem Speichern) entfällt, weil runSenderTick nach jeder
+// Serverantwort den kanonischen mealPlan-Stand wholesale übernimmt.
 function savePlanOrder() {
-  const orderDateKeys = mealPlan.map(day => toLocalDateKey(day.date));
-  scheduleDebouncedWrite({
-    debounceKey: "planOrder",
-    resource: "mealPlan",
-    buildApiFn: () => apiCall("updateMealOrder", { order: JSON.stringify(orderDateKeys) }),
-    // Kein Re-Render bei Erfolg: die lokale Umsortierung (setupSortable/onEnd)
-    // ist bereits deterministisch korrekt. ABER: mealPlan[i].date dient onEnd
-    // als "Herkunfts-Identität" (welcher Ursprungs-Tag sitzt jetzt an Position i)
-    // und muss nach dem Speichern still auf den jetzt persistierten Stand
-    // (= dateSlots[i].date) zurückgesetzt werden - sonst würde eine SPÄTERE
-    // Reorder-Runde mit veralteten Identitäts-Keys arbeiten und der Server
-    // vertauscht beim nächsten Speichern die falschen Tage (kein Re-Render,
-    // daher unsichtbar bis zum nächsten Neustart/Reload).
-    applyResult: () => {
-      mealPlan.forEach((day, i) => { if (dateSlots[i]) day.date = dateSlots[i].date; });
-    },
-    onFinalError: () => showErrorWithRetry("Reihenfolge konnte nicht gespeichert werden.", savePlanOrder),
-    delayMs: 600,
-    maxWaitMs: 2500,
-  });
+  enqueue({ type: "plan.setOrder", order: mealPlan.map(day => toLocalDateKey(day.date)) });
 }
 
 function toggleLock(idx) {
-  if (!mealPlan[idx]) return;
-  const dateKey = toLocalDateKey(mealPlan[idx].date);
-
-  // Optimistic update
-  if (lockedDays.has(idx)) lockedDays.delete(idx); else lockedDays.add(idx);
-  // isLocked im lokalen State updaten
-  mealPlan[idx].isLocked = lockedDays.has(idx);
-  renderPlan();
-
-  // Im Hintergrund in Sheets persistieren (datumsbasiert, nicht index-basiert),
-  // mit Retry statt sofortigem Rollback bei nur transienten Fehlern (z.B.
-  // Lock-Kontention bei vielen schnell hintereinander gesperrten Tagen).
-  runPendingWrite({
-    resource: "mealPlan",
-    apiFn: () => apiCall("toggleLock", { date: dateKey }),
-    applyResult: () => {}, // optimistischer Stand ist bereits korrekt
-    onFinalError: () => {
-      // Rollback erst nach endgültigem Fehlschlag (inkl. Retries)
-      if (lockedDays.has(idx)) lockedDays.delete(idx); else lockedDays.add(idx);
-      mealPlan[idx].isLocked = lockedDays.has(idx);
-      renderPlan();
-      showErrorWithRetry("Lock konnte nicht gespeichert werden.", () => toggleLock(idx));
-    },
-  });
+  const day = mealPlan[idx];
+  if (!day) return;
+  enqueue({ type: "plan.setLock", day: toLocalDateKey(day.date), value: !day.isLocked });
 }
 
 // ── Swipe: generischer Helfer mit Live-Feedback (Zeile folgt dem Finger) ──
@@ -1750,7 +1581,7 @@ function attachSwipe(selector, { onLeft, onRight, getMeta, excludeSelector }) {
 attachSwipe(".day-wrap", {
   excludeSelector: ".drag-handle",
   getMeta: (wrap) => parseInt(wrap.dataset.idx, 10),
-  onRight: (idx) => lockedDays.has(idx) ? showToast('Tag ist gesperrt 🔒', '', 1600) : openDaySheet(idx),
+  onRight: (idx) => mealPlan[idx]?.isLocked ? showToast('Tag ist gesperrt 🔒', '', 1600) : openDaySheet(idx),
   onLeft:  (idx) => toggleLock(idx),
 });
 
@@ -1816,30 +1647,29 @@ async function loadShoppingList() {
   }
 }
 
-// ── Generisches "Pending Writes"-Modul ───────────────────────────
-// Sofortige Schreibaktionen mit Retry + "last request wins"-Schutz: pro
-// Ressource wird bei jedem Dispatch eine Sequenznummer vergeben. Eine Antwort
-// wird nur übernommen, wenn seither noch keine neuere Aktion derselben
-// Ressource angewandt wurde - verhindert, dass eine verspätet eintreffende,
-// veraltete Antwort einen bereits aktuelleren UI-Zustand überschreibt.
-// Wiederverwendbar für Plan-Tab, Einkauf-Tab und künftige Ressourcen (z.B.
-// Vorräte), nicht nur für den Einkauf-Tab.
-const pendingWrites = [];
-const pwDebounced = new Map(); // debounceKey -> wartende, noch nicht abgeschickte Serien-Aktion
+// ── Speicher-Status (Tab-Punkte) ─────────────────────────────────
+// Alle Schreibaktionen laufen über die Outbox (siehe unten); dieses Modul
+// bleibt nur noch für die Sichtbarkeits-Logik der Tab-Punkte sowie für
+// dispatchSeq/applyIfLatest bestehen - zwei Low-Level-Helfer, die reine
+// Lesevorgänge (z.B. getShoppingListV2 beim Tab-Wechsel) vor einer verspätet
+// eintreffenden, veralteten Antwort schützen (unabhängig von der Outbox).
 const writeSeq = {};       // resource -> zuletzt vergebene Sequenznummer
 const lastAppliedSeq = {}; // resource -> höchste bereits angewandte Sequenznummer
+
+function dispatchSeq(resource) {
+  writeSeq[resource] = (writeSeq[resource] || 0) + 1;
+  return writeSeq[resource];
+}
+function applyIfLatest(resource, seq, applyFn) {
+  if (seq > (lastAppliedSeq[resource] || 0)) {
+    lastAppliedSeq[resource] = seq;
+    applyFn();
+  }
+}
 
 // Ohne 'resource' global über alle Ressourcen, mit 'resource' nur für diese
 // eine (z.B. für den Pending-Dot am jeweiligen Tab-Icon).
 function hasPendingWrites(resource) {
-  const inImmediate = pendingWrites.some(a => !resource || a.resource === resource);
-  if (inImmediate) return true;
-  for (const entry of pwDebounced.values()) {
-    if (!resource || entry.resource === resource) return true;
-  }
-  // Outbox+Commands (siehe weiter unten): deckt sowohl wartende als auch
-  // gerade unterwegs befindliche Befehle ab, solange das alte und das neue
-  // Speicher-System parallel existieren (Übergang bis Schritt 4/5).
   return outbox.some(cmd => !resource || resourceOfCommandType(cmd.type) === resource);
 }
 
@@ -1853,166 +1683,10 @@ function updateSaveIndicator() {
   if (shoppingDot) shoppingDot.classList.toggle("visible", hasPendingWrites("shopping"));
 }
 
-// Erzwingt das sofortige Absenden aller wartenden Serien-Aktionen (Debounce-
-// Pause wird übersprungen) sowie einen sofortigen Retry-Versuch für Aktionen,
-// die gerade im Backoff auf den nächsten Versuch warten. Wird vor generatePlan()
-// und beim Minimieren/Schließen der App genutzt (kein manueller Button mehr).
-function flushPendingWrites() {
-  Array.from(pwDebounced.keys()).forEach(fireDebouncedWrite);
-  pendingWrites.forEach(action => {
-    if (action.inFlight) return; // läuft schon, kein doppelter Request
-    clearTimeout(action.timer);
-    attemptPendingWrite(action);
-  });
-  updateSaveIndicator();
-}
-
-// Sequenznummer bei Dispatch vergeben (nicht erst bei Antworterhalt) - das ist
-// die Grundlage von "last request wins": zwei Low-Level-Helfer, die auch reine
-// Lesevorgänge (z.B. getShoppingListV2 beim Tab-Wechsel) vor derselben
-// Race schützen können, ohne den vollen Retry-Apparat von runPendingWrite.
-function dispatchSeq(resource) {
-  writeSeq[resource] = (writeSeq[resource] || 0) + 1;
-  return writeSeq[resource];
-}
-function applyIfLatest(resource, seq, applyFn) {
-  if (seq > (lastAppliedSeq[resource] || 0)) {
-    lastAppliedSeq[resource] = seq;
-    applyFn();
-  }
-}
-
-function runPendingWrite({ resource, apiFn, applyResult, onFinalError, retries = 2, retryDelayMs = 1200 }) {
-  const action = {
-    resource, apiFn, applyResult, onFinalError,
-    seq: dispatchSeq(resource),
-    retriesLeft: retries, retryDelayMs,
-    inFlight: false, timer: null,
-  };
-  pendingWrites.push(action);
-  updateSaveIndicator();
-  attemptPendingWrite(action);
-  return action;
-}
-
-function attemptPendingWrite(action) {
-  action.inFlight = true;
-  action.apiFn().then(data => {
-    const idx = pendingWrites.indexOf(action);
-    if (idx !== -1) pendingWrites.splice(idx, 1);
-    updateSaveIndicator();
-    applyIfLatest(action.resource, action.seq, () => action.applyResult(data));
-  }).catch(err => {
-    action.inFlight = false;
-    action.retriesLeft -= 1;
-    if (action.retriesLeft > 0) {
-      action.timer = setTimeout(() => attemptPendingWrite(action), action.retryDelayMs);
-    } else {
-      const idx = pendingWrites.indexOf(action);
-      if (idx !== -1) pendingWrites.splice(idx, 1);
-      updateSaveIndicator();
-      console.error(err);
-      action.onFinalError(err);
-    }
-  });
-}
-
-// Serien-Aktionen (z.B. schnelles wiederholtes An-/Abhaken desselben Produkts,
-// mehrere Drag&Drop-Reorders hintereinander) bündeln: Aufrufe mit demselben
-// debounceKey werden gesammelt und erst nach einer kurzen Pause (oder
-// spätestens nach maxWaitMs) als EIN runPendingWrite()-Request abgeschickt.
-// "baseline" ist der Zustand vor der ERSTEN Aktion der Serie (nur beim ersten
-// Aufruf pro Serie relevant) - wird für Rollback bei endgültigem Fehler an
-// onFinalError(err, baseline) durchgereicht. "isNoOp(entry)" ist optional:
-// liefert sie true, wird beim Feuern gar kein Request geschickt (z.B. Toggle-
-// Serie mit gerader Klickanzahl = Netto-Änderung null). Ohne isNoOp wird immer
-// gesendet (z.B. Reorder: mehrere Drops sollen zu einem Request mit dem
-// finalen Stand kollabieren, nicht wegfallen).
-function scheduleDebouncedWrite({ debounceKey, resource, baseline, buildApiFn, applyResult, onFinalError, isNoOp, delayMs = 450, maxWaitMs = 2000 }) {
-  let entry = pwDebounced.get(debounceKey);
-  if (!entry) {
-    entry = { clickCount: 0, baseline, timer: null, maxWaitTimer: null };
-    pwDebounced.set(debounceKey, entry);
-    entry.maxWaitTimer = setTimeout(() => fireDebouncedWrite(debounceKey), maxWaitMs);
-  }
-  entry.clickCount += 1;
-  entry.resource = resource;
-  entry.buildApiFn = buildApiFn;
-  entry.applyResult = applyResult;
-  entry.onFinalError = onFinalError;
-  entry.isNoOp = isNoOp || (() => false);
-  clearTimeout(entry.timer);
-  entry.timer = setTimeout(() => fireDebouncedWrite(debounceKey), delayMs);
-  updateSaveIndicator();
-}
-
-function fireDebouncedWrite(debounceKey) {
-  const entry = pwDebounced.get(debounceKey);
-  if (!entry) return;
-  pwDebounced.delete(debounceKey);
-  clearTimeout(entry.timer);
-  clearTimeout(entry.maxWaitTimer);
-  if (entry.isNoOp(entry)) { updateSaveIndicator(); return; }
-  runPendingWrite({
-    resource: entry.resource,
-    apiFn: entry.buildApiFn,
-    applyResult: entry.applyResult,
-    onFinalError: err => entry.onFinalError(err, entry.baseline),
-  });
-}
-
-// ── Optimistic UI für den Einkauf-Tab ───────────────────────────
-// UI wird sofort lokal mutiert + gerendert, der API-Call läuft im Hintergrund
-// (mit Retry) weiter. Scheitert er endgültig, wird auf den Snapshot vor der
-// Mutation zurückgerollt und ein Fehler-Toast gezeigt (analog zu toggleLock()).
-function applyShoppingResult(data) {
-  shoppingItems = data.items || [];
-  renderShoppingV2();
-}
-
-// Rollback auf den Stand vor der Aktion + Fehler-Toast mit Retry-Button, der
-// den zwischenzeitlich (optimistisch, aber fehlgeschlagen) erreichten Zustand
-// wiederherstellt und die Aktion erneut versucht. Gemeinsam genutzt von
-// sofortigen Shopping-Aktionen und dem Debounce-Pfad (toggleShoppingEntry).
-function shoppingFinalErrorHandler(apiFn, snapshot, applyResult = applyShoppingResult) {
-  const failedState = structuredClone(shoppingItems);
-  shoppingItems = snapshot;
-  renderShoppingV2();
-  showErrorWithRetry("Änderung konnte nicht gespeichert werden.", () => {
-    shoppingItems = failedState;
-    renderShoppingV2();
-    runOptimisticShoppingAction(apiFn, snapshot, applyResult);
-  });
-}
-
-// 'applyResult' ist optional: Standard übernimmt die Server-Antwort (nötig für
-// Aktionen wie addManualItem, die serverseitig vergebene IDs/Merging liefern).
-// Für Aktionen, deren lokale optimistische Mutation die Server-Logik bereits
-// vollständig spiegelt (z.B. Löschen, Menge bearbeiten), wird () => {} übergeben
-// - verhindert, dass ihre Antwort einen zeitgleich noch wartenden, entprellten
-// Toggle (siehe toggleShoppingEntry) mit veralteten Daten überschreibt/zurücksetzt.
-function runOptimisticShoppingAction(apiFn, snapshot, applyResult = applyShoppingResult) {
-  runPendingWrite({
-    resource: "shopping",
-    apiFn,
-    applyResult,
-    onFinalError: () => shoppingFinalErrorHandler(apiFn, snapshot, applyResult),
-  });
-}
-
-// Sicherheitsnetz: beim Minimieren/Schließen der Mini App (beforeunload ist in
-// Mobile-WebViews unzuverlässig) alle ausstehenden Schreibvorgänge - auch noch
-// wartende Serien-Aktionen (Debounce) - sofort nachsenden, statt auf den
-// Debounce-/Retry-Timer zu warten.
-document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) return;
-  flushPendingWrites();
-});
-
 // ════════════════════════════════════════════════════════════════
 // Outbox + Commands (siehe .claude/Plans/2026_07_21_Save_Load_Update.md)
 //
-// Ersetzt schrittweise das "Pending Writes"-Modul oben. Grundidee: jede
+// Alleiniger Schreibpfad für Plan UND Einkaufsliste. Grundidee: jede
 // Änderung wird zu einem absoluten (nicht kippenden), mit einer stabilen ID
 // versehenen Befehl (siehe Befehls-Katalog im Plan-Dokument). Befehle landen
 // SOFORT in einer localStorage-persistierten Warteschlange (überlebt
@@ -2021,14 +1695,8 @@ document.addEventListener("visibilitychange", () => {
 // strikt FIFO) an die applyCommands-Action (Backend siehe gas/Main.js). Nach
 // jeder Serverantwort wird deren kanonischer Stand übernommen und noch
 // wartende Befehle werden erneut lokal angewandt, damit ihre optimistische
-// Wirkung sichtbar bleibt.
-//
-// WICHTIG (Stand Schritt 3): dieses Modul ist bereits voll funktionsfähig,
-// aber noch von KEINER UI-Aktion verdrahtet - alle Schreibpfade rufen
-// weiterhin runPendingWrite()/scheduleDebouncedWrite() (oben) auf. Das
-// Verdrahten (enqueue() an den ca. 10 Call-Sites) sowie das Entfernen des
-// alten Moduls ist Schritt 4. Bis dahin existieren beide Systeme bewusst
-// parallel, damit die App nach jedem einzelnen Schritt lauffähig bleibt.
+// Wirkung sichtbar bleibt. Einzige Ausnahme: generatePlan/regenerateSingleDay
+// laufen bewusst außerhalb (nicht-deterministisch, kein automatischer Retry).
 // ════════════════════════════════════════════════════════════════
 
 const OUTBOX_STORAGE_KEY    = "essensplaner.outbox.v1";
@@ -2074,7 +1742,7 @@ function resourceOfCommandType(type) {
 }
 
 function stripLocalOutboxFields(cmd) {
-  const { sending, enqueuedAt, ...rest } = cmd;
+  const { sending, enqueuedAt, _successMessage, ...rest } = cmd;
   return rest;
 }
 
@@ -2165,11 +1833,11 @@ function applyPlanSetSplitLocally(cmd) {
   }
 }
 
-// Spiegelt applyOptimisticToggle (oben) 1:1, aber ID- statt indexbasiert
-// (srcId/ingId, siehe Schritt 1 gas/Models.js) und absolut statt kippend.
-// Nutzt bewusst dieselben Helfer (recomputeProductDerived/syncSourceToDish/
-// syncIngredientToProduct) - die kennen nur bereits aufgelöste Objekte,
-// nicht Indizes, und sind daher unverändert wiederverwendbar.
+// Spiegelt die bidirektionale Abhak-Logik aus ShoppingListState (gas/Models.js,
+// toggleProduct/toggleProductSource/toggleDish/toggleDishIngredient) im Client,
+// aber ID- statt indexbasiert (srcId/ingId, siehe Schritt 1) und absolut statt
+// kippend. Nutzt recomputeProductDerived/syncSourceToDish/syncIngredientToProduct
+// (unten) - die kennen nur bereits aufgelöste Objekte, nicht Indizes.
 function applyShopSetDoneLocally(cmd) {
   const target = cmd.target || {};
   const value  = !!cmd.value;
@@ -2378,13 +2046,13 @@ async function runSenderTick() {
   try {
     const res = await apiCall("applyCommands", { commands: JSON.stringify(batch.map(stripLocalOutboxFields)) });
 
-    const handledIds = new Set([...(res.applied || []), ...(res.rejected || []).map(r => r.id)]);
+    const appliedSet = new Set(res.applied || []);
+    const handledIds = new Set([...appliedSet, ...(res.rejected || []).map(r => r.id)]);
     outbox = outbox.filter(cmd => !handledIds.has(cmd.id));
 
     if (res.mealPlan) {
       mealPlan  = res.mealPlan;
       dateSlots = res.mealPlan.map(d => ({ date: d.date, dayOfWeek: d.dayOfWeek }));
-      lockedDays = new Set(mealPlan.map((d, i) => d.isLocked ? i : -1).filter(i => i >= 0));
     }
     if (res.shopping) shoppingItems = res.shopping.items || [];
 
@@ -2397,6 +2065,12 @@ async function runSenderTick() {
 
     if (res.rejected && res.rejected.length) {
       showError("Eine Änderung konnte nicht übernommen werden.");
+    } else {
+      // Erfolgs-Toast einzelner Aktionen, die das explizit wollen (z.B. "Zur
+      // Einkaufsliste hinzugefügt ✓") - nur der letzte, um kein Toast-Spam
+      // bei mehreren gleichzeitig bestätigten Befehlen zu erzeugen.
+      const messages = batch.filter(cmd => appliedSet.has(cmd.id) && cmd._successMessage).map(cmd => cmd._successMessage);
+      if (messages.length) showSuccess(messages[messages.length - 1]);
     }
 
     senderRetryCount = 0;
@@ -2455,6 +2129,18 @@ async function bootstrapOutbox() {
   await runSenderTick();
 }
 
+// Wartet aktiv, bis die Outbox leer ist (oder ein Sendeversuch scheitert) -
+// im Unterschied zu wakeSender() (nur "anstoßen", kein awaitbares Ergebnis).
+// Für Stellen, die vor einer möglicherweise überschreibenden Aktion (z.B.
+// generatePlan) sichergehen wollen, dass nichts Wartendes verloren geht.
+async function flushOutbox() {
+  while (outbox.length) {
+    if (senderTimer) { clearTimeout(senderTimer); senderTimer = null; }
+    await runSenderTick();
+    if (lastSendFailed) break; // offline - nicht in einer Schleife weiterversuchen
+  }
+}
+
 function recomputeProductDerived(product) {
   product.isDone  = product.sources.length > 0 && product.sources.every(s => s.done);
   product.openQty = product.sources.filter(s => !s.done).reduce((sum, s) => sum + (s.qty || 0), 0);
@@ -2477,68 +2163,41 @@ function syncIngredientToProduct(dish, ing) {
   recomputeProductDerived(product);
 }
 
-// Spiegelt die bidirektionale Abhak-Logik aus ShoppingListState (gas/Models.js,
-// toggleProduct/toggleProductSource/toggleDish/toggleDishIngredient) im Client.
-function applyOptimisticToggle(kind, id, index) {
+// 'index' wird nur beim KLICK aufgelöst (die Liste ist zu diesem Zeitpunkt
+// exakt im gerade gerenderten Zustand) - ab hier läuft alles über die
+// stabile srcId/ingId (siehe Schritt 1), nicht mehr über die Array-Position.
+// Mehrfaches schnelles An-/Abhaken kollabiert automatisch zu einem finalen
+// shop.setDone-Befehl (siehe commandCollapseKey im Outbox-Modul).
+function toggleShoppingEntry(kind, id, index) {
+  let currentDone, target;
+
   if (kind === "product") {
     const product = shoppingItems.find(i => i.type === "product" && i.id === id);
     if (!product) return;
-    const newDone = !product.isDone;
-    product.sources.forEach(source => { source.done = newDone; syncSourceToDish(product, source); });
-    recomputeProductDerived(product);
+    target = { kind, id };
+    currentDone = product.isDone;
   } else if (kind === "productSource") {
     const product = shoppingItems.find(i => i.type === "product" && i.id === id);
-    if (!product) return;
-    const source = product.sources[index];
+    const source = product && product.sources[index];
     if (!source) return;
-    source.done = !source.done;
-    syncSourceToDish(product, source);
-    recomputeProductDerived(product);
+    target = { kind, id, srcId: source.srcId };
+    currentDone = source.done;
   } else if (kind === "dish") {
     const dish = shoppingItems.find(i => i.type === "dish" && i.id === id);
     if (!dish) return;
-    const newDone = !dish.done;
-    dish.ingredients.forEach(ing => { ing.done = newDone; syncIngredientToProduct(dish, ing); });
-    dish.done = newDone;
+    target = { kind, id };
+    currentDone = dish.done;
   } else if (kind === "dishIngredient") {
     const dish = shoppingItems.find(i => i.type === "dish" && i.id === id);
-    if (!dish) return;
-    const ing = dish.ingredients[index];
+    const ing = dish && dish.ingredients[index];
     if (!ing) return;
-    ing.done = !ing.done;
-    syncIngredientToProduct(dish, ing);
-    dish.done = dish.ingredients.length > 0 && dish.ingredients.every(i => i.done);
+    target = { kind, id, ingId: ing.ingId };
+    currentDone = ing.done;
+  } else {
+    return;
   }
-}
 
-function toggleShoppingEntry(kind, id, index) {
-  // Serien-Klicks auf denselben Eintrag (schnelles An-/Abhaken) werden gebündelt
-  // (siehe scheduleDebouncedWrite): baseline ist nur beim ersten Klick der Serie
-  // relevant, bei geradzahliger Klickanzahl innerhalb der Pause wird gar kein
-  // Request geschickt, da die Netto-Änderung null ist.
-  const debounceKey = `shoppingToggle:${kind}:${id}:${index ?? ""}`;
-  const baseline = pwDebounced.has(debounceKey) ? undefined : structuredClone(shoppingItems);
-
-  applyOptimisticToggle(kind, id, index);
-  renderShoppingV2();
-
-  const params = { kind, id };
-  if (index !== null && index !== undefined) params.index = index;
-  const buildApiFn = () => apiCall("toggleShoppingEntry", params);
-
-  scheduleDebouncedWrite({
-    debounceKey,
-    resource: "shopping",
-    baseline,
-    buildApiFn,
-    // Kein Re-Render bei Erfolg: applyOptimisticToggle() (inkl. recomputeProductDerived/
-    // syncSourceToDish/syncIngredientToProduct) spiegelt die serverseitige Logik bereits
-    // vollständig - ein erneutes Anwenden der (nach der Debounce-Pause ggf. bereits
-    // veralteten) Server-Antwort würde die Liste sichtbar "nachträglich" springen lassen.
-    applyResult: () => {},
-    onFinalError: (err, entryBaseline) => shoppingFinalErrorHandler(buildApiFn, entryBaseline, () => {}),
-    isNoOp: entry => entry.clickCount % 2 === 0,
-  });
+  enqueue({ type: "shop.setDone", target, value: !currentDone });
 }
 
 let expandedShoppingIds = new Set();
