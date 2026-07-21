@@ -1397,12 +1397,18 @@ function submitEditModal(recipeId) {
   applyEditModalChange(ctx, name, recipeId);
 }
 
+// Alle fünf Builder unten adressieren über dateSlots[idx].date (stabile
+// Kalender-Slot-Identität), NICHT über mealPlan[idx].date (Inhalts-Identität,
+// wandert bei einem noch unbestätigten lokalen Reorder mit dem Inhalt mit -
+// siehe findPlanDayByKey weiter oben für dieselbe Unterscheidung auf der
+// Empfängerseite).
 function applyEditModalChange(ctx, name, recipeId) {
-  const day = mealPlan[ctx.idx];
-  if (!day) return;
+  const day  = mealPlan[ctx.idx];
+  const slot = dateSlots[ctx.idx];
+  if (!day || !slot) return;
   enqueue({
     type: "plan.setMeal",
-    day: toLocalDateKey(day.date),
+    day: toLocalDateKey(slot.date),
     person: ctx.person || undefined,
     recipeId: recipeId || undefined,
     customName: name,
@@ -1412,25 +1418,28 @@ function applyEditModalChange(ctx, name, recipeId) {
 
 // ── Split Toggle ───────────────────────────────────────────────
 function toggleSplit(idx) {
-  const day = mealPlan[idx];
-  if (!day) return;
-  enqueue({ type: "plan.setSplit", day: toLocalDateKey(day.date), value: !day.isSplit, _successMessage: "Aktualisiert ✓" });
+  const day  = mealPlan[idx];
+  const slot = dateSlots[idx];
+  if (!day || !slot) return;
+  enqueue({ type: "plan.setSplit", day: toLocalDateKey(slot.date), value: !day.isSplit, _successMessage: "Aktualisiert ✓" });
 }
 
 // ── Stepper ───────────────────────────────────────────────────
 function changePax(idx, delta) {
-  const day = mealPlan[idx];
-  if (!day) return;
+  const day  = mealPlan[idx];
+  const slot = dateSlots[idx];
+  if (!day || !slot) return;
   const newVal = Math.max(0, day.portions + delta);
-  enqueue({ type: "plan.setPortions", day: toLocalDateKey(day.date), value: newVal });
+  enqueue({ type: "plan.setPortions", day: toLocalDateKey(slot.date), value: newVal });
 }
 
 function changePersonPax(idx, person, delta) {
-  const day = mealPlan[idx];
-  if (!day) return;
+  const day  = mealPlan[idx];
+  const slot = dateSlots[idx];
+  if (!day || !slot) return;
   const key = person === "tobi" ? "portionsTobi" : "portionsNora";
   const newVal = Math.max(1, day[key] + delta);
-  enqueue({ type: "plan.setPortions", day: toLocalDateKey(day.date), person, value: newVal });
+  enqueue({ type: "plan.setPortions", day: toLocalDateKey(slot.date), person, value: newVal });
 }
 
 // ── Sortable mit Lock + Undo ─────────────────────────────────────
@@ -1533,9 +1542,10 @@ function savePlanOrder() {
 }
 
 function toggleLock(idx) {
-  const day = mealPlan[idx];
-  if (!day) return;
-  enqueue({ type: "plan.setLock", day: toLocalDateKey(day.date), value: !day.isLocked });
+  const day  = mealPlan[idx];
+  const slot = dateSlots[idx];
+  if (!day || !slot) return;
+  enqueue({ type: "plan.setLock", day: toLocalDateKey(slot.date), value: !day.isLocked });
 }
 
 // ── Swipe: generischer Helfer mit Live-Feedback (Zeile folgt dem Finger) ──
@@ -1757,8 +1767,15 @@ function stripLocalOutboxFields(cmd) {
 // (sofortige Vorschau) als auch beim Replay wartender Befehle nach einer
 // Serverantwort (siehe runSenderTick) verwendet werden kann.
 
+// Löst über dateSlots (STABILE Kalender-Slot-Identität, ändert sich nie durch
+// lokales Drag & Drop) statt über mealPlan[i].date (Inhalts-Identität, wandert
+// bei einem lokalen Reorder MIT dem Inhalt mit). day/setLock/setSplit/
+// setPortions/setMeal adressieren "diesen Kalendertag", nicht "dieses konkrete
+// Gericht" - bei einer noch nicht bestätigten Verschiebung könnten beide
+// auseinanderlaufen; die Suche über dateSlots bleibt in diesem Fall korrekt.
 function findPlanDayByKey(dayKey) {
-  return mealPlan.find(d => toLocalDateKey(d.date) === dayKey);
+  const idx = dateSlots.findIndex(slot => toLocalDateKey(slot.date) === dayKey);
+  return idx >= 0 ? mealPlan[idx] : undefined;
 }
 
 function applyPlanSetLockLocally(cmd) {
@@ -2054,6 +2071,30 @@ async function runSenderTick() {
     const appliedSet = new Set(res.applied || []);
     const handledIds = new Set([...appliedSet, ...(res.rejected || []).map(r => r.id)]);
     outbox = outbox.filter(cmd => !handledIds.has(cmd.id));
+
+    // Ein soeben bestätigter plan.setOrder macht die Datums-"Identität" für
+    // einen NOCH WARTENDEN plan.setOrder ungültig: dessen order[] wurde mit
+    // den alten Identitäten gebaut (welcher Inhalt - egal wo er gerade
+    // liegt - soll wohin), aber der Server hat diese Identitäten mit dem
+    // gerade bestätigten Befehl bereits neu auf Positionen verteilt. Ohne
+    // Übersetzung würde der wartende Befehl beim nächsten Senden die falschen
+    // Tage vertauschen (sichtbar erst, wenn er durchläuft - "springt später
+    // nochmal um"). Aus dem gerade bestätigten order[] UND der bekannten
+    // Server-Regel "Position k bekommt IMMER den fixen Slot res.mealPlan[k].date"
+    // lässt sich exakt ableiten: alte Identität order[k] -> jetzt gültige
+    // Identität res.mealPlan[k].date.
+    const succeededOrderCmd = batch.find(cmd => cmd.type === "plan.setOrder" && appliedSet.has(cmd.id));
+    if (succeededOrderCmd && res.mealPlan) {
+      const keyTranslation = new Map();
+      succeededOrderCmd.order.forEach((oldKey, k) => {
+        if (res.mealPlan[k]) keyTranslation.set(oldKey, toLocalDateKey(res.mealPlan[k].date));
+      });
+      outbox.forEach(cmd => {
+        if (cmd.type === "plan.setOrder" && Array.isArray(cmd.order)) {
+          cmd.order = cmd.order.map(k => keyTranslation.get(k) || k);
+        }
+      });
+    }
 
     if (res.mealPlan) {
       mealPlan  = res.mealPlan;
