@@ -580,6 +580,7 @@ function normalizeCategoryClient(raw) {
 let mealPlan       = [];
 let dateSlots      = [];
 let shoppingItems  = [];
+let productHistory = []; // Produkt-Gedächtnis [{name, category, count, lastUsed}] (Tab Produkt_Historie)
 let shoppingSortMode = localStorage.getItem("shoppingSortMode") || "combined"; // "category" | "alpha" | "combined"
 let pantryItems    = [];
 let recipes        = [];
@@ -961,8 +962,14 @@ function renderCategoryChips(boxId, selected, onPick) {
   });
 }
 
+let manualAddCategoryTouched = false; // Nutzer hat selbst einen Chip angetippt -> keine Auto-Kategorie mehr
+
 function renderCatPicker() {
-  renderCategoryChips("manual-add-cat-picker", manualAddCategory, cat => { manualAddCategory = cat; renderCatPicker(); });
+  renderCategoryChips("manual-add-cat-picker", manualAddCategory, cat => {
+    manualAddCategory = cat;
+    manualAddCategoryTouched = true;
+    renderCatPicker();
+  });
 }
 
 function openManualAddModal() {
@@ -970,42 +977,106 @@ function openManualAddModal() {
   document.getElementById("manual-add-qtytext").value = "";
   document.getElementById("manual-add-suggestions").innerHTML = "";
   manualAddCategory = "Sonstiges";
+  manualAddCategoryTouched = false;
   renderCatPicker();
   document.getElementById("manual-add-modal").classList.add("open");
 
   const input = document.getElementById("manual-add-name");
   setTimeout(() => input.focus(), 50);
-  input.oninput = () => renderNameSuggestions(input.value, "manual-add-suggestions", (name, category) => {
-    input.value = name;
-    manualAddCategory = category;
-    renderCatPicker();
-  });
+  input.oninput = () => {
+    // Exakt bekannter Name -> dessen Kategorie vorauswählen (solange nicht selbst gewählt)
+    const known = findKnownProduct(input.value);
+    if (known && !manualAddCategoryTouched && known.category !== manualAddCategory) {
+      manualAddCategory = known.category;
+      renderCatPicker();
+    }
+    renderNameSuggestions(input.value, "manual-add-suggestions", (name, category) => {
+      input.value = name;
+      manualAddCategory = category;
+      renderCatPicker();
+    });
+  };
 }
 function closeManualAddModal() { document.getElementById("manual-add-modal").classList.remove("open"); }
 function closeManualAddModalOnOverlay(e) {
   if (e.target === document.getElementById("manual-add-modal")) closeManualAddModal();
 }
 
-// Sammelt alle bekannten Zutatennamen aus der Rezept-DB (dedupliziert) für die Autocomplete.
-function getKnownIngredients() {
-  const byName = new Map();
+// Alle bekannten Produkte für die Autocomplete: Produkt-Gedächtnis (selbst
+// eingetippt/korrigiert, dessen Kategorie hat Vorrang) + Zutaten der Rezept-DB.
+// Dedupliziert ohne Groß-/Kleinschreibung. Map: key -> {name, category, count, fromHistory}
+function getKnownProducts() {
+  const byKey = new Map();
+  productHistory.forEach(entry => {
+    const key = entry.name.trim().toLowerCase();
+    if (key && !byKey.has(key)) {
+      byKey.set(key, { name: entry.name, category: normalizeCategoryClient(entry.category), count: entry.count || 1, fromHistory: true });
+    }
+  });
   recipes.forEach(r => (r.ingredients || []).forEach(ing => {
-    if (!byName.has(ing.name)) byName.set(ing.name, ing.category || "Sonstiges");
+    const key = (ing.name || "").trim().toLowerCase();
+    if (key && !byKey.has(key)) {
+      byKey.set(key, { name: ing.name, category: normalizeCategoryClient(ing.category), count: 0, fromHistory: false });
+    }
   }));
-  return byName;
+  return byKey;
+}
+
+function findKnownProduct(name) {
+  const key = String(name || "").trim().toLowerCase();
+  return key ? (getKnownProducts().get(key) || null) : null;
+}
+
+// Rangfolge: 0 = Name beginnt mit der Eingabe ("Frisch" -> "Frischkäse"),
+// 1 = ein späteres Wort beginnt damit ("Körnig" -> "Frischkäse Körnig"),
+// 2 = irgendwo enthalten ("käse" -> "Frischkäse"); innerhalb: Gedächtnis vor Rezept-DB,
+// häufiger genutzt zuerst, dann kürzerer Name.
+function getProductSuggestions(query, limit = 8) {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+  const ranked = [];
+  getKnownProducts().forEach((entry, key) => {
+    let tier;
+    if (key.startsWith(q)) tier = 0;
+    else if (key.split(/[\s\-\/(),]+/).some(word => word.startsWith(q))) tier = 1;
+    else if (key.includes(q)) tier = 2;
+    else return;
+    ranked.push({ ...entry, tier });
+  });
+  ranked.sort((a, b) =>
+    a.tier - b.tier ||
+    (b.fromHistory - a.fromHistory) ||
+    (b.count - a.count) ||
+    a.name.length - b.name.length ||
+    a.name.localeCompare(b.name, "de"));
+  return ranked.slice(0, limit);
+}
+
+// Spiegelt ProductHistory.record/rename (gas/Models.js) für die optimistische
+// Anzeige - wird beim nächsten Server-Stand ohnehin durch das Original ersetzt.
+function recordProductHistoryLocally(name, category, oldName) {
+  const trimmed = String(name || "").trim();
+  if (!trimmed) return;
+  const newKey = trimmed.toLowerCase();
+  const oldKey = oldName !== undefined ? String(oldName).trim().toLowerCase() : null;
+  let carried = 0;
+  if (oldKey !== null && oldKey !== newKey) {
+    const old = productHistory.find(e => e.name.trim().toLowerCase() === oldKey);
+    if (old) carried = old.count || 0;
+    productHistory = productHistory.filter(e => e.name.trim().toLowerCase() !== oldKey);
+  }
+  let entry = productHistory.find(e => e.name.trim().toLowerCase() === newKey);
+  if (!entry) { entry = { name: trimmed, category: "", count: 0, lastUsed: null }; productHistory.push(entry); }
+  entry.name = trimmed;
+  entry.category = normalizeCategoryClient(category);
+  entry.count = oldKey !== null ? Math.max(1, entry.count + carried) : entry.count + 1;
 }
 
 // Vorschlagsliste unter einem Namensfeld; onPick(name, normalisierteKategorie).
 function renderNameSuggestions(query, boxId, onPick) {
   const box = document.getElementById(boxId);
   box.innerHTML = "";
-  if (!query.trim()) return;
-  const known = getKnownIngredients();
-  const matches = Array.from(known.entries())
-    .filter(([name]) => name.toLowerCase().includes(query.toLowerCase()))
-    .slice(0, 6);
-  matches.forEach(([name, category]) => {
-    const normalized = normalizeCategoryClient(category);
+  getProductSuggestions(query).forEach(({ name, category: normalized }) => {
     const item = document.createElement("div");
     item.className = "modal-suggestion-item";
     item.innerHTML = `${name}<div class="tag-line">${normalized}</div>`;
@@ -1115,6 +1186,7 @@ function findMergeTargetForEdit(product, name, category) {
 // bereits offenes Produkt gleicher Kategorie führt zusammen (shop.editProduct).
 let productEditId = null;
 let productEditCategory = "Sonstiges";
+let productEditCategoryTouched = false;
 function openProductEditModal(productId) {
   const product = shoppingItems.find(i => i.type === "product" && i.id === productId);
   if (!product) return;
@@ -1122,6 +1194,7 @@ function openProductEditModal(productId) {
 
   productEditId = productId;
   productEditCategory = normalizeCategoryClient(product.category);
+  productEditCategoryTouched = false;
 
   const nameInput = document.getElementById("product-edit-name");
   const qtyInput  = document.getElementById("product-edit-qtytext");
@@ -1133,6 +1206,11 @@ function openProductEditModal(productId) {
 
   const refresh = () => { renderProductEditCatPicker(); updateProductEditMergeHint(); };
   nameInput.oninput = () => {
+    const known = nameInput.value.trim() !== product.name ? findKnownProduct(nameInput.value) : null;
+    if (known && !productEditCategoryTouched && known.category !== productEditCategory) {
+      productEditCategory = known.category;
+      renderProductEditCatPicker();
+    }
     updateProductEditMergeHint();
     renderNameSuggestions(nameInput.value, "product-edit-suggestions", (name, category) => {
       nameInput.value = name;
@@ -1146,6 +1224,7 @@ function openProductEditModal(productId) {
 function renderProductEditCatPicker() {
   renderCategoryChips("product-edit-cat-picker", productEditCategory, cat => {
     productEditCategory = cat;
+    productEditCategoryTouched = true;
     renderProductEditCatPicker();
     updateProductEditMergeHint();
   });
@@ -1750,6 +1829,7 @@ async function preloadShoppingListSilently() {
     const data = await apiCall("getShoppingListV2");
     applyIfLatest("shopping", seq, () => {
       shoppingItems = data.items || [];
+      productHistory = data.productHistory || productHistory;
       replayOutboxLocally("shopping");
       renderPlan();
     });
@@ -1765,6 +1845,7 @@ async function loadShoppingList() {
     const data = await apiCall("getShoppingListV2");
     applyIfLatest("shopping", seq, () => {
       shoppingItems = data.items || [];
+      productHistory = data.productHistory || productHistory;
       replayOutboxLocally("shopping");
       renderShoppingV2();
     });
@@ -2020,6 +2101,7 @@ function applyShopAddManualLocally(cmd) {
     label:    "manuell",
     qtyText:  cmd.qtyText || "",
   });
+  recordProductHistoryLocally(cmd.name, cmd.category || "Sonstiges");
 }
 
 // Nutzdaten-Felder heißen bewusst productId/entryId statt 'id' - 'id' ist die
@@ -2060,6 +2142,7 @@ function applyShopEditProductLocally(cmd) {
   const name = cmd.name.trim();
   const category = normalizeCategoryClient(cmd.category);
   const target = findMergeTargetForEdit(product, name, category);
+  recordProductHistoryLocally(name, category, product.name);
 
   if (!target) {
     product.name = name;
@@ -2271,6 +2354,7 @@ async function runSenderTick() {
       dateSlots = res.mealPlan.map(d => ({ date: d.date, dayOfWeek: d.dayOfWeek }));
     }
     if (res.shopping) shoppingItems = res.shopping.items || [];
+    if (res.productHistory) productHistory = res.productHistory;
 
     // Noch wartende (z.B. während des Requests neu hinzugekommene) Befehle
     // erneut auf den jetzt kanonischen Stand anwenden, damit ihre
