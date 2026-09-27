@@ -455,7 +455,27 @@
   </div>
 </div>
 
-<!-- Menge bearbeiten (Stift-Icon) -->
+<!-- Eintrag bearbeiten (Stift-Icon an der Produkt-Hauptzeile) -->
+<div class="modal-overlay" id="product-edit-modal" onclick="closeProductEditModalOnOverlay(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">Eintrag bearbeiten</div>
+      <div class="modal-subtitle" id="product-edit-merge-hint"></div>
+    </div>
+    <div class="modal-body">
+      <input type="text" class="modal-input" id="product-edit-name" placeholder="Name">
+      <div class="modal-suggestions" id="product-edit-suggestions"></div>
+      <div class="cat-picker" id="product-edit-cat-picker"></div>
+      <input type="text" class="modal-input" id="product-edit-qtytext" placeholder="Menge (optional, z.B. 500 g)" style="margin-top:12px">
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeProductEditModal()">Abbrechen</button>
+      <button class="btn btn-primary" onclick="submitProductEditModal()">Speichern</button>
+    </div>
+  </div>
+</div>
+
+<!-- Menge bearbeiten (Stift-Icon an einer Quell-Unterzeile) -->
 <div class="modal-overlay" id="qty-edit-modal" onclick="closeQtyEditModalOnOverlay(event)">
   <div class="modal">
     <div class="modal-header">
@@ -927,17 +947,22 @@ function submitAddShoppingModal() {
 // ── Manuell hinzufügen (Popup) ──────────────────────────────────
 let manualAddCategory = "Sonstiges";
 
-function renderCatPicker() {
-  const box = document.getElementById("manual-add-cat-picker");
+// Kategorie-Chips, wiederverwendet von "Manuell hinzufügen" und "Eintrag bearbeiten".
+function renderCategoryChips(boxId, selected, onPick) {
+  const box = document.getElementById(boxId);
   box.innerHTML = "";
   FIXED_CATEGORIES.forEach(cat => {
     const chip = document.createElement("button");
     chip.type = "button";
-    chip.className = "cat-chip" + (cat === manualAddCategory ? " active" : "");
+    chip.className = "cat-chip" + (cat === selected ? " active" : "");
     chip.textContent = cat;
-    chip.onclick = () => { manualAddCategory = cat; renderCatPicker(); };
+    chip.onclick = () => onPick(cat);
     box.appendChild(chip);
   });
+}
+
+function renderCatPicker() {
+  renderCategoryChips("manual-add-cat-picker", manualAddCategory, cat => { manualAddCategory = cat; renderCatPicker(); });
 }
 
 function openManualAddModal() {
@@ -950,7 +975,11 @@ function openManualAddModal() {
 
   const input = document.getElementById("manual-add-name");
   setTimeout(() => input.focus(), 50);
-  input.oninput = () => renderManualAddSuggestions(input.value);
+  input.oninput = () => renderNameSuggestions(input.value, "manual-add-suggestions", (name, category) => {
+    input.value = name;
+    manualAddCategory = category;
+    renderCatPicker();
+  });
 }
 function closeManualAddModal() { document.getElementById("manual-add-modal").classList.remove("open"); }
 function closeManualAddModalOnOverlay(e) {
@@ -966,8 +995,9 @@ function getKnownIngredients() {
   return byName;
 }
 
-function renderManualAddSuggestions(query) {
-  const box = document.getElementById("manual-add-suggestions");
+// Vorschlagsliste unter einem Namensfeld; onPick(name, normalisierteKategorie).
+function renderNameSuggestions(query, boxId, onPick) {
+  const box = document.getElementById(boxId);
   box.innerHTML = "";
   if (!query.trim()) return;
   const known = getKnownIngredients();
@@ -980,9 +1010,7 @@ function renderManualAddSuggestions(query) {
     item.className = "modal-suggestion-item";
     item.innerHTML = `${name}<div class="tag-line">${normalized}</div>`;
     item.onclick = () => {
-      document.getElementById("manual-add-name").value = name;
-      manualAddCategory = normalized;
-      renderCatPicker();
+      onPick(name, normalized);
       box.innerHTML = "";
     };
     box.appendChild(item);
@@ -1044,6 +1072,7 @@ function openQtyEditModal(productId, sourceIndex) {
   const product = shoppingItems.find(i => i.id === productId);
   const source = product && product.sources[sourceIndex];
   if (!source) return;
+  if (!isShoppingEntryConfirmed(product)) { showToast("Wird noch gespeichert…", "", 1600); return; }
   qtyEditProductId = productId;
   qtyEditSrcId = source.srcId;
   const input = document.getElementById("qty-edit-input");
@@ -1062,7 +1091,92 @@ function submitQtyEditModal() {
   closeQtyEditModal();
   if (!id || !srcId) return;
 
-  enqueue({ type: "shop.setQtyText", id, srcId, qtyText });
+  enqueue({ type: "shop.setQtyText", productId: id, srcId, qtyText });
+}
+
+// Ein optimistisch angelegter, vom Server noch nicht bestätigter Eintrag hat
+// eine Temp-ID (bzw. Quellen ohne srcId) - Befehle darauf würde der Server
+// ablehnen. Nach der nächsten Serverantwort trägt er seine echte ID.
+function isShoppingEntryConfirmed(product) {
+  return !String(product.id).startsWith("temp-") && product.sources.every(s => s.srcId);
+}
+
+// Sucht ein ANDERES offenes Produkt mit gleichem Namen+Kategorie, in das ein
+// Umbenennen zusammenführen würde (Spiegel von ShoppingListState.editProduct).
+function findMergeTargetForEdit(product, name, category) {
+  if (product.isDone) return null;
+  const key = `${name.trim().toLowerCase()}::${normalizeCategoryClient(category).toLowerCase()}`;
+  return shoppingItems.find(i => i !== product && i.type === "product" && !i.isDone &&
+    `${i.name.trim().toLowerCase()}::${i.category.trim().toLowerCase()}` === key) || null;
+}
+
+// ── Eintrag bearbeiten (Stift-Icon an der Produkt-Hauptzeile) ────
+// Name, Kategorie und - bei genau einer Quelle - die Menge. Umbenennen auf ein
+// bereits offenes Produkt gleicher Kategorie führt zusammen (shop.editProduct).
+let productEditId = null;
+let productEditCategory = "Sonstiges";
+function openProductEditModal(productId) {
+  const product = shoppingItems.find(i => i.type === "product" && i.id === productId);
+  if (!product) return;
+  if (!isShoppingEntryConfirmed(product)) { showToast("Wird noch gespeichert…", "", 1600); return; }
+
+  productEditId = productId;
+  productEditCategory = normalizeCategoryClient(product.category);
+
+  const nameInput = document.getElementById("product-edit-name");
+  const qtyInput  = document.getElementById("product-edit-qtytext");
+  nameInput.value = product.name;
+  const singleSource = product.sources.length === 1;
+  qtyInput.style.display = singleSource ? "" : "none";
+  qtyInput.value = singleSource ? (product.sources[0].qtyText || "") : "";
+  document.getElementById("product-edit-suggestions").innerHTML = "";
+
+  const refresh = () => { renderProductEditCatPicker(); updateProductEditMergeHint(); };
+  nameInput.oninput = () => {
+    updateProductEditMergeHint();
+    renderNameSuggestions(nameInput.value, "product-edit-suggestions", (name, category) => {
+      nameInput.value = name;
+      productEditCategory = category;
+      refresh();
+    });
+  };
+  refresh();
+  document.getElementById("product-edit-modal").classList.add("open");
+}
+function renderProductEditCatPicker() {
+  renderCategoryChips("product-edit-cat-picker", productEditCategory, cat => {
+    productEditCategory = cat;
+    renderProductEditCatPicker();
+    updateProductEditMergeHint();
+  });
+}
+function updateProductEditMergeHint() {
+  const hint = document.getElementById("product-edit-merge-hint");
+  const product = shoppingItems.find(i => i.type === "product" && i.id === productEditId);
+  const name = document.getElementById("product-edit-name").value.trim();
+  const target = product && name ? findMergeTargetForEdit(product, name, productEditCategory) : null;
+  hint.textContent = target ? `Wird mit „${target.name}“ zusammengeführt` : "";
+}
+function closeProductEditModal() { document.getElementById("product-edit-modal").classList.remove("open"); }
+function closeProductEditModalOnOverlay(e) {
+  if (e.target === document.getElementById("product-edit-modal")) closeProductEditModal();
+}
+function submitProductEditModal() {
+  const product = shoppingItems.find(i => i.type === "product" && i.id === productEditId);
+  const name = document.getElementById("product-edit-name").value.trim();
+  const category = productEditCategory;
+  const qtyText = document.getElementById("product-edit-qtytext").value.trim();
+  closeProductEditModal();
+  if (!product || !name) return;
+
+  // Menge ZUERST: ein anschließender Merge entfernt die Produkt-ID, die Quelle
+  // (srcId) wandert aber mit ins Ziel.
+  if (product.sources.length === 1 && qtyText !== (product.sources[0].qtyText || "")) {
+    enqueue({ type: "shop.setQtyText", productId: product.id, srcId: product.sources[0].srcId, qtyText });
+  }
+  if (name !== product.name || category !== normalizeCategoryClient(product.category)) {
+    enqueue({ type: "shop.editProduct", productId: product.id, name, category });
+  }
 }
 
 // ── Einkaufsliste sortieren (Popup) ─────────────────────────────
@@ -1112,7 +1226,7 @@ function confirmDeleteEntry() {
   closeDeleteEntryConfirm();
   if (!ctx) return;
 
-  enqueue({ type: "shop.deleteEntry", kind: ctx.kind, id: ctx.id });
+  enqueue({ type: "shop.deleteEntry", kind: ctx.kind, entryId: ctx.id });
 }
 
 // ── Skeleton-Platzhalter beim ersten Laden ──────────────────────
@@ -1908,8 +2022,13 @@ function applyShopAddManualLocally(cmd) {
   });
 }
 
+// Nutzdaten-Felder heißen bewusst productId/entryId statt 'id' - 'id' ist die
+// Befehls-ID (enqueue: Object.assign({ id }, command) würde sonst überschrieben
+// und der Server-Dedup verwirft spätere Befehle aufs selbe Produkt). 'cmd.id' als
+// Fallback nur für Alt-Befehle, die noch in einer persistierten Outbox liegen.
 function applyShopSetQtyTextLocally(cmd) {
-  const product = shoppingItems.find(i => i.type === "product" && i.id === cmd.id);
+  const productId = cmd.productId || cmd.id;
+  const product = shoppingItems.find(i => i.type === "product" && i.id === productId);
   if (!product) return;
   const source = product.sources.find(s => s.srcId === cmd.srcId);
   if (!source) return;
@@ -1918,19 +2037,68 @@ function applyShopSetQtyTextLocally(cmd) {
 }
 
 function applyShopDeleteEntryLocally(cmd) {
+  const entryId = cmd.entryId || cmd.id;
   if (cmd.kind === "product") {
-    shoppingItems = shoppingItems.filter(i => !(i.type === "product" && i.id === cmd.id));
+    shoppingItems = shoppingItems.filter(i => !(i.type === "product" && i.id === entryId));
     shoppingItems.filter(i => i.type === "dish").forEach(dish => {
-      dish.ingredients = dish.ingredients.filter(ing => ing.productId !== cmd.id);
+      dish.ingredients = dish.ingredients.filter(ing => ing.productId !== entryId);
       dish.done = dish.ingredients.length > 0 && dish.ingredients.every(ing => ing.done);
     });
   } else if (cmd.kind === "dish") {
-    shoppingItems = shoppingItems.filter(i => !(i.type === "dish" && i.id === cmd.id));
+    shoppingItems = shoppingItems.filter(i => !(i.type === "dish" && i.id === entryId));
     shoppingItems.filter(i => i.type === "product").forEach(product => {
-      product.sources = product.sources.filter(s => s.sourceId !== cmd.id);
+      product.sources = product.sources.filter(s => s.sourceId !== entryId);
       recomputeProductDerived(product);
     });
   }
+}
+
+// Spiegel von ShoppingListState.editProduct (gas/Models.js) inkl. Merge.
+function applyShopEditProductLocally(cmd) {
+  const product = shoppingItems.find(i => i.type === "product" && i.id === cmd.productId);
+  if (!product || !cmd.name) return;
+  const name = cmd.name.trim();
+  const category = normalizeCategoryClient(cmd.category);
+  const target = findMergeTargetForEdit(product, name, category);
+
+  if (!target) {
+    product.name = name;
+    product.category = category;
+    shoppingItems.filter(i => i.type === "dish").forEach(dish => {
+      dish.ingredients.filter(ing => ing.productId === product.id).forEach(ing => { ing.name = name; });
+    });
+    return;
+  }
+
+  product.sources.forEach(source => {
+    const existing = !source.done && target.sources.find(s =>
+      !s.done && (s.sourceId ?? null) === (source.sourceId ?? null) && s.label === source.label && (s.mealDate ?? null) === (source.mealDate ?? null));
+    if (existing) {
+      if (source.qty !== null && source.qty !== undefined) existing.qty = (existing.qty || 0) + source.qty;
+      if (source.qtyText) existing.qtyText = existing.qtyText ? existing.qtyText + " + " + source.qtyText : source.qtyText;
+    } else {
+      target.sources.push(source);
+    }
+  });
+  shoppingItems.filter(i => i.type === "dish").forEach(dish => {
+    const movedRefs = dish.ingredients.filter(ing => ing.productId === product.id);
+    if (!movedRefs.length) return;
+    const targetRef = dish.ingredients.find(ing => ing.productId === target.id);
+    movedRefs.forEach(ref => {
+      if (targetRef) {
+        if (ref.qty !== null && ref.qty !== undefined) targetRef.qty = (targetRef.qty || 0) + ref.qty;
+        targetRef.done = targetRef.done && ref.done;
+        dish.ingredients = dish.ingredients.filter(ing => ing !== ref);
+      } else {
+        ref.productId = target.id;
+        ref.name = target.name;
+      }
+    });
+    dish.done = dish.ingredients.length > 0 && dish.ingredients.every(ing => ing.done);
+  });
+  shoppingItems = shoppingItems.filter(i => i !== product);
+  recomputeProductDerived(target);
+  if (expandedShoppingIds.has(product.id)) expandedShoppingIds.add(target.id);
 }
 
 function applyShopDeleteBulkLocally(cmd) {
@@ -1965,6 +2133,7 @@ const LOCAL_COMMAND_HANDLERS = {
   "shop.setDone":     applyShopSetDoneLocally,
   "shop.addManual":   applyShopAddManualLocally,
   "shop.setQtyText":  applyShopSetQtyTextLocally,
+  "shop.editProduct": applyShopEditProductLocally,
   "shop.deleteEntry": applyShopDeleteEntryLocally,
   "shop.deleteBulk":  applyShopDeleteBulkLocally,
 };
@@ -1998,7 +2167,8 @@ function commandCollapseKey(cmd) {
       const t = cmd.target || {};
       return `shop.setDone:${t.kind}:${t.id}:${t.srcId || t.ingId || ""}`;
     }
-    case "shop.setQtyText": return `shop.setQtyText:${cmd.id}:${cmd.srcId}`;
+    case "shop.setQtyText":   return `shop.setQtyText:${cmd.productId || cmd.id}:${cmd.srcId}`;
+    case "shop.editProduct": return `shop.editProduct:${cmd.productId}`;
     default: return null; // kein Kollabieren für diesen Typ (z.B. addManual, deleteEntry)
   }
 }
@@ -2266,7 +2436,7 @@ function buildProductRow(product) {
   const inlineSrc = singleSource ? `<span class="src-inline">${product.sources[0].label}</span>` : "";
   const badge = expandable ? `<span class="sub-count">${product.sources.length}</span>` : "";
   const qtyHtml = product.openQtyText ? `<span class="item-qty">${product.openQtyText}</span>` : "";
-  const pencilHtml = singleSource ? `<button class="icon-btn-sm qty-edit">✏️</button>` : "";
+  const pencilHtml = `<button class="icon-btn-sm product-edit">✏️</button>`;
   const main = document.createElement("div");
   main.className = `shop-item ${product.isDone ? "done" : ""} ${expandable ? "expandable" : ""} ${showSub ? "has-sub" : ""} ${isExpanded ? "expanded" : ""}`.trim();
   main.dataset.kind = "product";
@@ -2274,9 +2444,7 @@ function buildProductRow(product) {
   main.innerHTML = `<div class="check ${product.isDone ? "on" : ""}">${product.isDone ? "✓" : ""}</div><span class="item-name">${product.name}</span>${inlineSrc}${pencilHtml}${qtyHtml}${statusHtml}${badge}${expandable ? CHEVRON_SVG : ""}`;
   main.onclick = () => { if (expandable) toggleShoppingExpand(product.id); };
   main.querySelector(".check").onclick = (e) => { e.stopPropagation(); toggleShoppingEntry("product", product.id, null); };
-  if (singleSource) {
-    main.querySelector(".qty-edit").onclick = (e) => { e.stopPropagation(); openQtyEditModal(product.id, 0); };
-  }
+  main.querySelector(".product-edit").onclick = (e) => { e.stopPropagation(); openProductEditModal(product.id); };
   wrap.appendChild(main);
 
   if (showSub) {
